@@ -21,6 +21,14 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="src/Console.fs" />
+
+    <!-- commands -->
+    <Compile Include="src/Command/Common.fs" />
+    <Compile Include="src/Command/LanguageServer.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Compile Include="src/Program.fs" />
   </ItemGroup>
 

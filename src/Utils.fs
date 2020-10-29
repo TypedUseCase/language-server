@@ -1,4 +1,4 @@
-namespace Tuc.Console
+namespace Tuc.LanguageServer
 
 [<RequireQualifiedAccess>]
 module FileSystem =
