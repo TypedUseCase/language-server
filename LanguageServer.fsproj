@@ -13,23 +13,26 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Include="src/Utils.fs" />
-
-    <!-- Internal libraries -->
-    <Compile Include="src/ErrorHandling/Result.fs" />
-    <Compile Include="src/ErrorHandling/Option.fs" />
+    <ProjectReference Include="src/ErrorHandling/ErrorHandling.fsproj" />
+    <!--
+    <ProjectReference Include="..\FsAutoComplete.Core\FsAutoComplete.Core.fsproj" />
+    <ProjectReference Include="..\FsAutoComplete.BackgroundServices\FsAutoComplete.BackgroundServices.fsproj" />
+    <ProjectReference Include="..\LanguageServerProtocol\LanguageServerProtocol.fsproj" />
+    <ProjectReference Include="..\ProjectSystem\ProjectSystem.fsproj" />
+    -->
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Include="src/Console.fs" />
+    <Compile Include="src/LanguageServer/Utils.fs" />
+    <Compile Include="src/LanguageServer/Console.fs" />
 
     <!-- commands -->
-    <Compile Include="src/Command/Common.fs" />
-    <Compile Include="src/Command/LanguageServer.fs" />
+    <Compile Include="src/LanguageServer/Command/Common.fs" />
+    <Compile Include="src/LanguageServer/Command/LanguageServer.fs" />
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Include="src/Program.fs" />
+    <Compile Include="src/LanguageServer/Program.fs" />
   </ItemGroup>
 
   <Import Project=".paket\Paket.Restore.targets" />
