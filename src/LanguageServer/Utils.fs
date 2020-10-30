@@ -97,6 +97,7 @@ module Directory =
 
 [<RequireQualifiedAccess>]
 module Path =
+    open System
     open System.IO
 
     let fileName = String.split "/" >> List.rev >> List.head
@@ -109,6 +110,70 @@ module Path =
 
     module Operators =
         let (/) a b = Path.Combine(a, b)
+
+    let getFullPathSafe (path: string) =
+        try Path.GetFullPath path
+        with _ -> path
+
+    let getFileNameSafe (path: string) =
+        try Path.GetFileName path
+        with _ -> path
+
+    /// Algorithm from https://stackoverflow.com/a/35734486/433393 for converting file paths to uris,
+    /// modified slightly to not rely on the System.Path members because they vary per-platform
+    let filePathToUri (filePath: string): string =
+        let filePath, finished =
+            if filePath.Contains "Untitled-" then
+                let rg = System.Text.RegularExpressions.Regex.Match(filePath, @"(Untitled-\d+).fsx")
+                if rg.Success then
+                    rg.Groups.[1].Value, true
+                else
+                    filePath, false
+            else
+                filePath, false
+
+        if not finished then
+            let uri = System.Text.StringBuilder(filePath.Length)
+            for c in filePath do
+                if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+                    c = '+' || c = '/' || c = '.' || c = '-' || c = '_' || c = '~' ||
+                    c > '\xFF' then
+                    uri.Append(c) |> ignore
+                // handle windows path separator chars.
+                // we _would_ use Path.DirectorySeparator/AltDirectorySeparator, but those vary per-platform and we want this
+                // logic to work cross-platform (for tests)
+                else if c = '\\' then
+                    uri.Append('/') |> ignore
+                else
+                    uri.Append('%') |> ignore
+                    uri.Append((int c).ToString("X2")) |> ignore
+
+            if uri.Length >= 2 && uri.[0] = '/' && uri.[1] = '/' then // UNC path
+                "file:" + uri.ToString()
+            else
+                "file:///" + (uri.ToString()).TrimStart('/')
+        else
+            "untitled:" + filePath
+
+    /// handles unifying the local-path logic for windows and non-windows paths,
+    /// without doing a check based on what the current system's OS is.
+    let fileUriToLocalPath (uriString: string) =
+        /// a test that checks if the start of the line is a windows-style drive string, for example
+        /// /d:, /c:, /z:, etc.
+        let isWindowsStyleDriveLetterMatch (s: string) =
+            match s.[0..2].ToCharArray() with
+            | [| |]
+            | [| _ |]
+            | [| _; _ |] -> false
+            // 26 windows drive letters allowed, only
+            | [| '/'; driveLetter; ':' |] when Char.IsLetter driveLetter -> true
+            | _ -> false
+        let initialLocalPath = Uri(uriString).LocalPath
+        let fn =
+            if isWindowsStyleDriveLetterMatch initialLocalPath
+            then initialLocalPath.TrimStart('/')
+            else initialLocalPath
+        if uriString.StartsWith "untitled:" then (fn + ".fsx") else fn
 
 [<AutoOpen>]
 module Regexp =

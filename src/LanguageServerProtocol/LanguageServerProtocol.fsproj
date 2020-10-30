@@ -5,6 +5,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="AssemblyInfo.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Compile Include="LanguageServerProtocol.fs" />
   </ItemGroup>
 

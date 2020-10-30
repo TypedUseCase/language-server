@@ -554,7 +554,7 @@ module Types =
 
         /// capabilities for the `textDocument/foldingRange`
         FoldingRange: FoldingRangeCapabilities option
-        
+
         /// Capabilities for the `textDocument/selectionRange`
         SelectionRange: DynamicCapabilities option
     }
@@ -1870,11 +1870,15 @@ module AsyncLspResult =
 let private notImplemented<'t> = async.Return LspResult.notImplemented<'t>
 
 /// Do nothing and ignore the notification
-let private ignoreNotification = async.Return(())
+let private ignoreNotification (from: string) =
+    async.Return(
+        eprintfn "[E] ignore notification from %s" from
+        printfn "[P] ignore notification from %s" from
+        ()
+    )
 
 open Types
 open System.Text
-open Newtonsoft.Json.Linq
 open Newtonsoft.Json.Linq
 
 [<AbstractClass>]
@@ -1882,7 +1886,7 @@ type LspClient() =
     /// The show message notification is sent from a server to a client to ask the client to display
     /// a particular message in the user interface.
     abstract member WindowShowMessage: ShowMessageParams -> Async<unit>
-    default __.WindowShowMessage(_) = ignoreNotification
+    default __.WindowShowMessage(_) = ignoreNotification "WindowShowMessage"
 
     /// The show message request is sent from a server to a client to ask the client to display
     /// a particular message in the user interface. In addition to the show message notification the
@@ -1893,12 +1897,12 @@ type LspClient() =
     /// The log message notification is sent from the server to the client to ask the client to log
     ///a particular message.
     abstract member WindowLogMessage: LogMessageParams -> Async<unit>
-    default __.WindowLogMessage(_) = ignoreNotification
+    default __.WindowLogMessage(_) = ignoreNotification "WindowLogMessage"
 
     /// The telemetry notification is sent from the server to the client to ask the client to log
     /// a telemetry event.
     abstract member TelemetryEvent: Newtonsoft.Json.Linq.JToken -> Async<unit>
-    default __.TelemetryEvent(_) = ignoreNotification
+    default __.TelemetryEvent(_) = ignoreNotification "TelemetryEvent"
 
     /// The `client/registerCapability` request is sent from the server to the client to register for a new
     /// capability on the client side. Not all clients need to support dynamic capability registration.
@@ -1953,7 +1957,7 @@ type LspClient() =
     /// Newly pushed diagnostics always replace previously pushed diagnostics. There is no merging that happens
     /// on the client side.
     abstract member TextDocumentPublishDiagnostics: PublishDiagnosticsParams -> Async<unit>
-    default __.TextDocumentPublishDiagnostics(_) = ignoreNotification
+    default __.TextDocumentPublishDiagnostics(_) = ignoreNotification "TextDocumentPublishDiagnostics"
 
 [<AbstractClass>]
 type LspServer() =
@@ -1967,17 +1971,17 @@ type LspServer() =
     /// The server can use the initialized notification for example to dynamically register capabilities.
     /// The initialized notification may only be sent once.
     abstract member Initialized: InitializedParams -> Async<unit>
-    default __.Initialized(_) = ignoreNotification
+    default __.Initialized(_) = ignoreNotification "Initialized"
 
     /// The shutdown request is sent from the client to the server. It asks the server to shut down, but to not
     /// exit (otherwise the response might not be delivered correctly to the client). There is a separate exit
     /// notification that asks the server to exit.
     abstract member Shutdown : unit -> Async<unit>
-    default __.Shutdown() = ignoreNotification
+    default __.Shutdown() = ignoreNotification "Shutdown"
 
     /// A notification to ask the server to exit its process.
     abstract member Exit : unit -> Async<unit>
-    default __.Exit() = ignoreNotification
+    default __.Exit() = ignoreNotification "Exit"
 
     /// The hover request is sent from the client to the server to request hover information at a given text
     /// document position.
@@ -1993,11 +1997,11 @@ type LspServer() =
     /// more than once without a corresponding close notification send before. This means open and close
     /// notification must be balanced and the max open count for a particular textDocument is one.
     abstract member TextDocumentDidOpen: DidOpenTextDocumentParams -> Async<unit>
-    default __.TextDocumentDidOpen(_) = ignoreNotification
+    default __.TextDocumentDidOpen(_) = ignoreNotification "TextDocumentDidOpen"
 
     /// The document change notification is sent from the client to the server to signal changes to a text document.
     abstract member TextDocumentDidChange: DidChangeTextDocumentParams -> Async<unit>
-    default __.TextDocumentDidChange(_) = ignoreNotification
+    default __.TextDocumentDidChange(_) = ignoreNotification "TextDocumentDidChange"
 
     /// The Completion request is sent from the client to the server to compute completion items at a given
     /// cursor position. Completion items are presented in the IntelliSense user interface.
@@ -2122,18 +2126,18 @@ type LspServer() =
     /// events using the registration mechanism. In former implementations clients pushed file events without
     /// the server actively asking for it.
     abstract member WorkspaceDidChangeWatchedFiles: DidChangeWatchedFilesParams -> Async<unit>
-    default __.WorkspaceDidChangeWatchedFiles(_) = ignoreNotification
+    default __.WorkspaceDidChangeWatchedFiles(_) = ignoreNotification "WorkspaceDidChangeWatchedFiles"
 
     /// The `workspace/didChangeWorkspaceFolders` notification is sent from the client to the server to inform
     /// the server about workspace folder configuration changes. The notification is sent by default if both
     /// *ServerCapabilities/workspace/workspaceFolders* and *ClientCapabilities/workapce/workspaceFolders* are
     /// true; or if the server has registered to receive this notification it first.
     abstract member WorkspaceDidChangeWorkspaceFolders: DidChangeWorkspaceFoldersParams -> Async<unit>
-    default __.WorkspaceDidChangeWorkspaceFolders(_) = ignoreNotification
+    default __.WorkspaceDidChangeWorkspaceFolders(_) = ignoreNotification "WorkspaceDidChangeWorkspaceFolders"
 
     /// A notification sent from the client to the server to signal the change of configuration settings.
     abstract member WorkspaceDidChangeConfiguration: DidChangeConfigurationParams -> Async<unit>
-    default __.WorkspaceDidChangeConfiguration(_) = ignoreNotification
+    default __.WorkspaceDidChangeConfiguration(_) = ignoreNotification "WorkspaceDidChangeConfiguration"
 
     /// The workspace symbol request is sent from the client to the server to list project-wide symbols matching
     /// the query string.
@@ -2149,7 +2153,7 @@ type LspServer() =
     /// The document will save notification is sent from the client to the server before the document is
     /// actually saved.
     abstract member TextDocumentWillSave: WillSaveTextDocumentParams -> Async<unit>
-    default __.TextDocumentWillSave(_) = ignoreNotification
+    default __.TextDocumentWillSave(_) = ignoreNotification "TextDocumentWillSave"
 
     /// The document will save request is sent from the client to the server before the document is actually saved.
     /// The request can return an array of TextEdits which will be applied to the text document before it is saved.
@@ -2161,7 +2165,7 @@ type LspServer() =
     /// The document save notification is sent from the client to the server when the document was saved
     /// in the client.
     abstract member TextDocumentDidSave: DidSaveTextDocumentParams -> Async<unit>
-    default __.TextDocumentDidSave(_) = ignoreNotification
+    default __.TextDocumentDidSave(_) = ignoreNotification "TextDocumentDidSave"
 
     /// The document close notification is sent from the client to the server when the document got closed in the
     /// client. The document’s truth now exists where the document’s uri points to (e.g. if the document’s uri is
@@ -2169,13 +2173,13 @@ type LspServer() =
     /// managing the document’s content. Receiving a close notification doesn’t mean that the document was open in
     /// an editor before. A close notification requires a previous open notification to be sent.
     abstract member TextDocumentDidClose: DidCloseTextDocumentParams -> Async<unit>
-    default __.TextDocumentDidClose(_) = ignoreNotification
+    default __.TextDocumentDidClose(_) = ignoreNotification "TextDocumentDidClose"
 
     /// The folding range request is sent from the client to the server to return all folding ranges found in a given text document.
     abstract member TextDocumentFoldingRange: FoldingRangeParams -> AsyncLspResult<FoldingRange list option>
     default __.TextDocumentFoldingRange(_) = notImplemented
-    
-    /// The selection range request is sent from the client to the server to return suggested selection ranges at an array of given positions. 
+
+    /// The selection range request is sent from the client to the server to return suggested selection ranges at an array of given positions.
     /// A selection range is a range around the cursor position which the user might be interested in selecting.
     abstract member TextDocumentSelectionRange: SelectionRangeParams -> AsyncLspResult<SelectionRange list option>
     default __.TextDocumentSelectionRange(_) = notImplemented
@@ -2239,7 +2243,7 @@ module Server =
                             return Result.Error (Error.Create(ErrorCodes.internalError, ex.ToString()))
                     }
                 | None ->
-                     async.Return (Result.Error (Error.Create(ErrorCodes.invalidRequest, "No params found")))
+                    async.Return (Result.Error (Error.Create(ErrorCodes.invalidRequest, "No params found")))
             with
             | :? JsonException as ex ->
                 async.Return (Result.Error (Error.Create(ErrorCodes.parseError, ex.ToString())))
@@ -2257,9 +2261,12 @@ module Server =
         [
             "initialize", requestHandling (fun s p -> s.Initialize(p))
             "initialized", requestHandling (fun s p -> s.Initialized(p) |> notificationSuccess)
+            (*
             "textDocument/hover", requestHandling (fun s p -> s.TextDocumentHover(p))
+            *)
             "textDocument/didOpen", requestHandling (fun s p -> s.TextDocumentDidOpen(p) |> notificationSuccess)
             "textDocument/didChange", requestHandling (fun s p -> s.TextDocumentDidChange(p) |> notificationSuccess)
+            (*
             "textDocument/completion", requestHandling (fun s p -> s.TextDocumentCompletion(p))
             "completionItem/resolve", requestHandling (fun s p -> s.CompletionItemResolve(p))
             "textDocument/rename", requestHandling (fun s p -> s.TextDocumentRename(p))
@@ -2281,7 +2288,9 @@ module Server =
             "textDocument/onTypeFormatting", requestHandling (fun s p -> s.TextDocumentOnTypeFormatting(p))
             "textDocument/willSave", requestHandling (fun s p -> s.TextDocumentWillSave(p) |> notificationSuccess)
             "textDocument/willSaveWaitUntil", requestHandling (fun s p -> s.TextDocumentWillSaveWaitUntil(p))
+            *)
             "textDocument/didSave", requestHandling (fun s p -> s.TextDocumentDidSave(p) |> notificationSuccess)
+            (*
             "textDocument/didClose", requestHandling (fun s p -> s.TextDocumentDidClose(p) |> notificationSuccess)
             "textDocument/documentSymbol", requestHandling (fun s p -> s.TextDocumentDocumentSymbol(p))
             "textDocument/foldingRange", requestHandling (fun s p -> s.TextDocumentFoldingRange(p))
@@ -2290,7 +2299,7 @@ module Server =
             "workspace/didChangeWorkspaceFolders", requestHandling (fun s p -> s.WorkspaceDidChangeWorkspaceFolders (p) |> notificationSuccess)
             "workspace/didChangeConfiguration", requestHandling (fun s p -> s.WorkspaceDidChangeConfiguration (p) |> notificationSuccess)
             "workspace/symbol", requestHandling (fun s p -> s.WorkspaceSymbol (p))
-            "workspace/executeCommand ", requestHandling (fun s p -> s.WorkspaceExecuteCommand (p))
+            "workspace/executeCommand ", requestHandling (fun s p -> s.WorkspaceExecuteCommand (p)) *)
             "shutdown", requestHandling (fun s _ -> s.Shutdown() |> notificationSuccess)
             "exit", requestHandling (fun s _ -> s.Exit() |> notificationSuccess)
         ]

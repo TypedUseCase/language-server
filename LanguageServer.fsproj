@@ -16,9 +16,9 @@
     <ProjectReference Include="src/ErrorHandling/ErrorHandling.fsproj" />
     <!--
     <ProjectReference Include="..\FsAutoComplete.Core\FsAutoComplete.Core.fsproj" />
-    <ProjectReference Include="..\FsAutoComplete.BackgroundServices\FsAutoComplete.BackgroundServices.fsproj" />
+    <ProjectReference Include="src/LanguageServer.BackgroundServices/LanguageServer.BackgroundServices.fsproj" />
     -->
-    <ProjectReference Include="..\LanguageServerProtocol\LanguageServerProtocol.fsproj" />
+    <ProjectReference Include="src/LanguageServerProtocol/LanguageServerProtocol.fsproj" />
     <!--
     <ProjectReference Include="..\ProjectSystem\ProjectSystem.fsproj" />
     -->
@@ -27,6 +27,11 @@
   <ItemGroup>
     <Compile Include="src/LanguageServer/Utils.fs" />
     <Compile Include="src/LanguageServer/Console.fs" />
+
+    <!-- LSP -->
+    <Compile Include="src/LanguageServer/Commands.fs" />
+    <Compile Include="src/LanguageServer/LspHelpers.fs" />
+    <Compile Include="src/LanguageServer/LanguageServer.Lsp.fs" />
 
     <!-- commands -->
     <Compile Include="src/LanguageServer/Command/Common.fs" />
