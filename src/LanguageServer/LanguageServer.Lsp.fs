@@ -5,6 +5,7 @@ module Lsp =
     open Tuc.Domain
     //open Argu
     //open FsAutoComplete
+    open FsLibLog
     //open FsAutoComplete.Logging
     //open FsAutoComplete.Utils
     //open FSharp.Compiler.SourceCodeServices
@@ -54,7 +55,7 @@ module Lsp =
     type TucLspServer(commands: Commands, lspClient: TucLspClient) =
         inherit LspServer()
 
-        // let logger = LogProvider.getLoggerByName "LSP"
+        let logger = LogProvider.getLoggerByName "LSP"
         // let fantomasLogger = LogProvider.getLoggerByName "Fantomas"
 
         let mutable clientCapabilities: ClientCapabilities option = None
@@ -76,17 +77,20 @@ module Lsp =
         let fixes = System.Collections.Generic.Dictionary<DocumentUri, (LanguageServerProtocol.Types.Range * TextEdit) list>()
         let analyzerFixes = System.Collections.Generic.Dictionary<(DocumentUri * string), (LanguageServerProtocol.Types.Range * TextEdit) list>()
 
+        let logInfo message =
+            logger.info (Log.setMessage message)
+
+            //lspClient.WindowLogMessage({ Type = MessageType.Info; Message = sprintf "[cl.log] %s" message })
+            //|> Async.Start
 
         let parseFile (p: DidChangeTextDocumentParams) =
-            eprintfn "LanguageServer.Lsp.parseFile ..."
+            logInfo "LanguageServer.Lsp.parseFile ..."
 
         ///Helper function for handling file requests using **recent** type check results
         //member x.fileHandler<'a> (f: SourceFilePath -> ParseAndCheckResults -> string [] -> AsyncLspResult<'a>) (file: SourceFilePath) : AsyncLspResult<'a> =
 
         override __.Initialize(p: InitializeParams) = async {
-            //logger.info (Log.setMessage "Initialize Request")
-            eprintfn "[E] LanguageServer.Lsp.initialize: %A ..." p.RootUri
-            printfn "[P] LanguageServer.Lsp.initialize: %A ..." p.RootUri
+            logInfo <| sprintf "LanguageServer.Lsp.initialize: %A ..." p.RootUri
 
             let actualRootPath =
                 match p.RootUri with
@@ -100,9 +104,6 @@ module Lsp =
             //glyphToSymbolKind <- glyphToSymbolKindGenerator clientCapabilities
 
             domainTypes <- commands.ResolveDomainTypes actualRootPath
-
-            lspClient.WindowLogMessage({ Type = MessageType.Info; Message = "Initialize message"})
-            |> Async.Start
 
             return
                 { InitializeResult.Default with
@@ -122,11 +123,11 @@ module Lsp =
                             // SignatureHelpProvider = Some {
                             //     SignatureHelpOptions.TriggerCharacters = Some [| "("; ","|]
                             // }
-                            // CompletionProvider =
-                            //     Some {
-                            //         ResolveProvider = Some true
-                            //         TriggerCharacters = Some ([| "."; "'"; |])
-                            //     }
+                            CompletionProvider =
+                                Some {
+                                    ResolveProvider = Some true
+                                    TriggerCharacters = Some ([| "."; |])
+                                }
                             // CodeLensProvider = Some {
                             //     CodeLensOptions.ResolveProvider = Some true
                             // }
@@ -146,33 +147,172 @@ module Lsp =
         }
 
         override __.Initialized(p: InitializedParams) = async {
-            //logger.info (Log.setMessage "Initialized request")
-            eprintfn "[E] LanguageServer.Lsp.initialized. DomainTypes: [%A]" (domainTypes |> List.length)
-            printfn "[P] LanguageServer.Lsp.initialized. DomainTypes: [%A]" (domainTypes |> List.length)
+            logInfo <| sprintf "[LS][Lsp] Initialized with %A Domain Types." (domainTypes |> List.length)
 
             return ()
         }
 
         override __.TextDocumentDidOpen(p: DidOpenTextDocumentParams) = async {
-            eprintfn "[E] LanguageServer.Lsp.TextDocumentDidOpen."
-            printfn "[P] LanguageServer.Lsp.TextDocumentDidOpen."
+            logInfo <| sprintf "[LS][Lsp] TextDocumentDidOpen %A" { p with TextDocument = { p.TextDocument with Text = "..." } }
 
             return ()
         }
 
-        override __.TextDocumentDidChange(p) = async {
-            eprintfn "[E] LanguageServer.Lsp.TextDocumentDidChange."
-            printfn "[P] LanguageServer.Lsp.TextDocumentDidChange."
+        override __.TextDocumentDidChange(p: DidChangeTextDocumentParams) = async {
+            logInfo <| sprintf "[LS][Lsp] TextDocumentDidChange %A" p.TextDocument
 
             return ()
         }
 
         //TODO: Investigate if this should be done at all
-        override __.TextDocumentDidSave(p) = async {
-            eprintfn "[E] LanguageServer.Lsp.TextDocumentDidSave."
-            printfn "[P] LanguageServer.Lsp.TextDocumentDidSave."
+        override __.TextDocumentDidSave(p: DidSaveTextDocumentParams) = async {
+            logInfo <| sprintf "[LS][Lsp] TextDocumentDidSave %A" { p with Text = None }
+
+            // todo - if F# -> resolve domain types
+            domainTypes <- commands.ResolveDomainTypes rootPath
 
             return ()
+        }
+
+        override __.TextDocumentCompletion(p: CompletionParams) = async {
+            //logInfo <| sprintf "[LS][Lsp] TextDocumentCompletion %A" p
+            logger.info (Log.setMessage "TextDocumentCompletion Request: {context}" >> Log.addContextDestructured "context" p)
+
+            // Sublime-lsp doesn't like when we answer null so we answer an empty list instead
+            let noCompletion = success (Some { IsIncomplete = true; Items = [||] })
+            let doc = p.TextDocument
+            let file = doc.GetFilePath()
+            let pos = p.GetFcsPos()
+
+            logInfo <| sprintf "[CI] file: %s | pos: %A" file pos
+
+            (*
+            [Info  - 3:47:27 PM] [cl.log] [LS][Lsp] TextDocumentCompletion
+            {
+                TextDocument = { Uri = "file:///Users/chromecp/fsharp/tuc-extension/etc/events.tuc" }
+                Position = { Line = 17
+                Character = 7
+            }
+            Context = Some {
+                triggerKind = Invoked
+                triggerCharacter = None
+            } }
+            [Info  - 3:47:27 PM] [cl.log] [CI] file: /Users/chromecp/fsharp/tuc-extension/etc/events.tuc | pos: (18,8)
+             *)
+
+            (*
+                // todo
+                - kouknout na TryGetFileCheckerOptionsWithLines
+                    - vraci to lines (asi otevreneho souboru)
+                    - z toho pak vytahnout aktualni "slovo", ke kteremu se ma napovidat
+                    - ale asi bude lepsi to proste vyparsovat rucne primo z TextDocument
+
+                - najak mapovat DomainTypes -> CompletionItem a filterovat podle hledaneho slova (asi? - kouknout na FSAC)
+                    - poresit taky jestli funguje watch na .fsx fily (to by se asi melo spis resit v didChange na fsx)
+
+             *)
+
+
+            (* let! res =
+                match commands.TryGetFileCheckerOptionsWithLines file with
+                | ResultOrString.Error s -> AsyncLspResult.internalError s
+                | ResultOrString.Ok (options, lines) ->
+                    let line = p.Position.Line
+                    let col = p.Position.Character
+                    let lineStr = lines.[line]
+                    let word = lineStr.Substring(0, col)
+                    let ok = line <= lines.Length && line >= 0 && col <= lineStr.Length + 1 && col >= 0
+                    if not ok then
+                        logger.info (Log.setMessage "TextDocumentCompletion Not OK:\n COL: {col}\n LINE_STR: {lineStr}\n LINE_STR_LENGTH: {lineStrLength}"
+                                     >> Log.addContextDestructured "col" col
+                                     >> Log.addContextDestructured "lineStr" lineStr
+                                     >> Log.addContextDestructured "lineStrLength" lineStr.Length)
+
+                        AsyncLspResult.internalError "not ok"
+                    elif (lineStr.StartsWith "#" && (KeywordList.hashDirectives.Keys |> Seq.exists (fun k -> k.StartsWith word ) || word.Contains "\n" )) then
+                        let completionList = { IsIncomplete = false; Items = KeywordList.hashSymbolCompletionItems }
+                        async.Return (success (Some completionList))
+                    else
+                        async {
+                            let! tyResOpt =
+                                match p.Context with
+                                | None -> commands.TryGetRecentTypeCheckResultsForFile(file, options) |> async.Return
+                                | Some ctx ->
+                                    //ctx.triggerKind = CompletionTriggerKind.Invoked ||
+                                    if  (ctx.triggerCharacter = Some ".") then
+                                        commands.TryGetLatestTypeCheckResultsForFile(file)
+                                    else
+                                        commands.TryGetRecentTypeCheckResultsForFile(file, options) |> async.Return
+
+                            match tyResOpt with
+                            | None ->
+                              logger.info (Log.setMessage "TextDocumentCompletion - no type check results")
+                              return LspResult.internalError "no type check results"
+                            | Some tyRes ->
+                                let! res = commands.Completion tyRes pos lineStr lines file None (config.KeywordsAutocomplete) (config.ExternalAutocomplete)
+                                let res =
+                                    match res with
+                                    | CoreResponse.Res(decls, keywords) ->
+                                        let items =
+                                            decls
+                                            |> Array.mapi (fun id d ->
+                                                let code =
+                                                    if System.Text.RegularExpressions.Regex.IsMatch(d.Name, """^[a-zA-Z][a-zA-Z0-9']+$""") then d.Name
+                                                    elif d.NamespaceToOpen.IsSome then d.Name
+                                                    else PrettyNaming.QuoteIdentifierIfNeeded d.Name
+                                                let label =
+                                                    match d.NamespaceToOpen with
+                                                    | Some no -> sprintf "%s (open %s)" d.Name no
+                                                    | None -> d.Name
+
+                                                { CompletionItem.Create(d.Name) with
+                                                    Kind = glyphToCompletionKind d.Glyph
+                                                    InsertText = Some code
+                                                    SortText = Some (sprintf "%06d" id)
+                                                    FilterText = Some d.Name
+                                                    Label = label
+                                                }
+                                            )
+                                        let its = if not keywords then items else Array.append items KeywordList.keywordCompletionItems
+                                        let completionList = { IsIncomplete = false; Items = its}
+                                        success (Some completionList)
+                                    | _ ->
+                                      logger.info (Log.setMessage "TextDocumentCompletion - no completion results")
+                                      noCompletion
+                                return res
+                        } *)
+
+            return success (Some { IsIncomplete = false; Items = [|
+                { CompletionItem.Create("CI item") with
+                    Kind = Some CompletionItemKind.Class
+                    InsertText = Some "Insert text"
+                    SortText = Some (sprintf "%06d" 0)
+                    FilterText = Some "CI item"
+                    // Label = ""
+                }
+            |] })
+        }
+
+        override __.CompletionItemResolve(ci) = async {
+            //logInfo <| sprintf "[LS][Lsp] CompletionItemResolve %A" ci
+            logger.info (Log.setMessage "CompletionItemResolve Request: {parms}" >> Log.addContextDestructured "parms" ci )
+
+            // todo - tahle metoda je mozna zbytecna, protoze ted budu mit asi vsechno rovnou v ci
+
+            (* let! res = commands.Helptext ci.InsertText.Value
+            let res =
+                match res with
+                | CoreResponse.InfoRes msg | CoreResponse.ErrorRes msg ->
+                    ci
+                | CoreResponse.Res (HelpText.Simple (name, str)) ->
+                    let d = Documentation.Markup (markdown str)
+                    {ci with Detail = Some name; Documentation = Some d  }
+                | CoreResponse.Res (HelpText.Full (name, tip, additionalEdit)) ->
+                    let (si, comment) = (TipFormatter.formatTip tip) |> List.collect id |> List.head
+                    //TODO: Add insert namespace
+                    let d = Documentation.Markup (markdown comment)
+                    {ci with Detail = Some si; Documentation = Some d  } *)
+            return success ci
         }
 
     let startCore (commands : Commands) =
@@ -208,17 +348,13 @@ module Lsp =
         LanguageServerProtocol.Server.start requestsHandlings input output TucLspClient (fun lspClient -> TucLspServer(commands, lspClient))
 
     let start (commands : Commands) =
-        //let logger = LogProvider.getLoggerByName "Startup"
+        let logger = LogProvider.getLoggerByName "Startup"
 
         try
             let result = startCore commands
-            eprintfn "[E] LanguageServer.Lsp.start ...."
-            printfn "[P] LanguageServer.Lsp.start ...."
-            //logger.info (Log.setMessage "Start - Ending LSP mode with {reason}" >> Log.addContextDestructured "reason" result)
+            logger.info (Log.setMessage "Start - Ending LSP mode with {reason}" >> Log.addContextDestructured "reason" result)
             int result
         with
         | ex ->
-            //logger.error (Log.setMessage "Start - LSP mode crashed" >> Log.addExn ex)
-            eprintfn "[E] LanguageServer.Lsp.start - error: %s." ex.Message
-            printfn "[P] LanguageServer.Lsp.start - error: %s." ex.Message
+            logger.error (Log.setMessage "Start - LSP mode crashed" >> Log.addExn ex)
             3

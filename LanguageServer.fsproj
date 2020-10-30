@@ -18,6 +18,7 @@
     <ProjectReference Include="..\FsAutoComplete.Core\FsAutoComplete.Core.fsproj" />
     <ProjectReference Include="src/LanguageServer.BackgroundServices/LanguageServer.BackgroundServices.fsproj" />
     -->
+    <ProjectReference Include="src/LanguageServer.Logging/LanguageServer.Logging.fsproj" />
     <ProjectReference Include="src/LanguageServerProtocol/LanguageServerProtocol.fsproj" />
     <!--
     <ProjectReference Include="..\ProjectSystem\ProjectSystem.fsproj" />

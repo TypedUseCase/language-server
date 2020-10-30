@@ -6,7 +6,7 @@ nuget FSharp.Core ~> 4.7
 nuget MF.ConsoleApplication ~> 2.0
 nuget Tuc.DomainResolver ~> 1.0
 
-#github TheAngryByrd/FsLibLog:f81cba440bf0476bb4e2262b57a067a0d6ab78a7 src/FsLibLog/FsLibLog.fs
+github TheAngryByrd/FsLibLog:f81cba440bf0476bb4e2262b57a067a0d6ab78a7 src/FsLibLog/FsLibLog.fs
 
 #nuget Argu ~> 5.2.0
 #nuget Fantomas ~> 4.0
@@ -28,10 +28,10 @@ nuget Newtonsoft.Json
 #nuget SQLitePCLRaw.bundle_green 1.1.14
 #nuget SQLitePCLRaw.core 1.1.14
 #nuget System.Configuration.ConfigurationManager
-#nuget Serilog
-#nuget Serilog.Sinks.File
-#nuget Serilog.Sinks.Console
-#nuget Serilog.Sinks.Async
+nuget Serilog
+nuget Serilog.Sinks.File
+nuget Serilog.Sinks.Console
+nuget Serilog.Sinks.Async
 #nuget Destructurama.FSharp 1.1.1-dev-00035 # prerelease is stable, just has different FSharp.Core version constraints
 #nuget FSharp.UMX
 #nuget FSharp.Formatting

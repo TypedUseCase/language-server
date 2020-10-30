@@ -2266,9 +2266,9 @@ module Server =
             *)
             "textDocument/didOpen", requestHandling (fun s p -> s.TextDocumentDidOpen(p) |> notificationSuccess)
             "textDocument/didChange", requestHandling (fun s p -> s.TextDocumentDidChange(p) |> notificationSuccess)
-            (*
             "textDocument/completion", requestHandling (fun s p -> s.TextDocumentCompletion(p))
             "completionItem/resolve", requestHandling (fun s p -> s.CompletionItemResolve(p))
+            (*
             "textDocument/rename", requestHandling (fun s p -> s.TextDocumentRename(p))
             "textDocument/definition", requestHandling (fun s p -> s.TextDocumentDefinition(p))
             "textDocument/typeDefinition", requestHandling (fun s p -> s.TextDocumentTypeDefinition(p))

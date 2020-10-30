@@ -80,18 +80,18 @@ module LspHelpers =
                     }
                 } *)
 
-        (* type TextDocumentIdentifier with
-            member doc.GetFilePath() = Path.FileUriToLocalPath doc.Uri
+        type TextDocumentIdentifier with
+            member doc.GetFilePath() = Path.fileUriToLocalPath doc.Uri
 
         type VersionedTextDocumentIdentifier with
-            member doc.GetFilePath() = Path.FileUriToLocalPath doc.Uri
+            member doc.GetFilePath() = Path.fileUriToLocalPath doc.Uri
 
         type TextDocumentItem with
-            member doc.GetFilePath() = Path.FileUriToLocalPath doc.Uri
- *)
-        (* type ITextDocumentPositionParams with
+            member doc.GetFilePath() = Path.fileUriToLocalPath doc.Uri
+
+        type ITextDocumentPositionParams with
             member p.GetFilePath() = p.TextDocument.GetFilePath()
-            member p.GetFcsPos() = protocolPosToPos p.Position *)
+            member p.GetFcsPos() = protocolPosToPos p.Position
 
         let fcsSeverityToDiagnostic = function
             | FSharpErrorSeverity.Error -> DiagnosticSeverity.Error
