@@ -6,6 +6,40 @@ nuget FSharp.Core ~> 4.7
 nuget MF.ConsoleApplication ~> 2.0
 nuget Tuc.DomainResolver ~> 1.0
 
+#github TheAngryByrd/FsLibLog:f81cba440bf0476bb4e2262b57a067a0d6ab78a7 src/FsLibLog/FsLibLog.fs
+
+#nuget Argu ~> 5.2.0
+#nuget Fantomas ~> 4.0
+#nuget Fantomas.Extras ~> 4.0
+#nuget FSharp.Compiler.Service ~> 37.0
+#nuget Dotnet.ProjInfo.Workspace.FCS ~> 0.44.0
+#nuget FSharp.Analyzers.SDK
+#nuget FSharp.Data 3.0.1
+#nuget ICSharpCode.Decompiler
+#nuget Sln ~> 0.3.0
+#nuget Mono.Cecil >= 0.10.0-beta7
+nuget Newtonsoft.Json
+#nuget Fake.Runtime prerelease
+#nuget FSharpLint.Core
+#nuget FSharp.Core redirects:force
+#nuget Dapper
+#nuget Microsoft.Data.Sqlite 2.2.4
+#nuget Microsoft.Data.Sqlite.Core 2.2.4
+#nuget SQLitePCLRaw.bundle_green 1.1.14
+#nuget SQLitePCLRaw.core 1.1.14
+#nuget System.Configuration.ConfigurationManager
+#nuget Serilog
+#nuget Serilog.Sinks.File
+#nuget Serilog.Sinks.Console
+#nuget Serilog.Sinks.Async
+#nuget Destructurama.FSharp 1.1.1-dev-00035 # prerelease is stable, just has different FSharp.Core version constraints
+#nuget FSharp.UMX
+#nuget FSharp.Formatting
+
+nuget Microsoft.SourceLink.GitHub copy_local:true
+nuget Microsoft.NETFramework.ReferenceAssemblies 1.0.0
+#nuget FSharp.DependencyManager.Nuget 37
+
 group Tests
     storage: none
     source https://api.nuget.org/v3/index.json
