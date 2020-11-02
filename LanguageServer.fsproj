@@ -20,9 +20,8 @@
     -->
     <ProjectReference Include="src/LanguageServer.Logging/LanguageServer.Logging.fsproj" />
     <ProjectReference Include="src/LanguageServerProtocol/LanguageServerProtocol.fsproj" />
-    <!--
-    <ProjectReference Include="..\ProjectSystem\ProjectSystem.fsproj" />
-    -->
+
+    <ProjectReference Include="src/Tuc.Parser/Tuc.Parser.fsproj" />
   </ItemGroup>
 
   <ItemGroup>
