@@ -1,6 +1,7 @@
 namespace Tuc.LanguageServer.Command
 
 open MF.ConsoleApplication
+open Tuc.LanguageServer
 open Tuc.LanguageServer.Console
 
 open FsLibLog
@@ -42,7 +43,8 @@ module LanguageServer =
             logger.info (Log.setMessage "Start")
 
             start logger {
-                ResolveDomainTypes = resolveDomainTypes logger (input, output)
+                Commands.defaults with
+                    ResolveDomainTypes = resolveDomainTypes logger (input, output)
             }
 
             logger.info (Log.setMessage <| sprintf "Started at %A" System.DateTime.Now)

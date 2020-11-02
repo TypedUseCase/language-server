@@ -1,44 +1,6 @@
 namespace Tuc.LanguageServer
 
 [<RequireQualifiedAccess>]
-module FileSystem =
-    open System.IO
-
-    let private writeContent (writer: StreamWriter) content =
-        writer.WriteLine(sprintf "%s" content)
-
-    let writeSeqToFile (filePath: string) (data: string seq) =
-        File.WriteAllLines(filePath, data)
-
-    let writeToFile (filePath: string) data =
-        File.WriteAllText(filePath, data)
-
-    let appendToFile (filePath: string) data =
-        File.AppendAllText(filePath, data)
-
-    let readLines (filePath: string) =
-        File.ReadAllLines(filePath)
-        |> Seq.toList
-
-    let readContent (filePath: string) =
-        File.ReadAllText(filePath)
-
-    let tryReadContent (filePath: string) =
-        if File.Exists filePath then File.ReadAllText(filePath) |> Some
-        else None
-
-    let getAllDirs = function
-        | [] -> []
-        | directories -> directories |> List.collect (Directory.EnumerateDirectories >> List.ofSeq)
-
-    let rec getAllFiles = function
-        | [] -> []
-        | directories -> [
-            yield! directories |> Seq.collect Directory.EnumerateFiles
-            yield! directories |> Seq.collect Directory.EnumerateDirectories |> List.ofSeq |> getAllFiles
-        ]
-
-[<RequireQualifiedAccess>]
 module Option =
     module Operators =
         let (=>) key value = (key, value)
@@ -108,8 +70,16 @@ module Path =
         let file = path |> fileName
         path.Substring(0, path.Length - file.Length)
 
+    let normalize (file : string) =
+        if file.EndsWith ".fsx" then
+            let p = Path.GetFullPath file
+            (p.Chars 0).ToString().ToLower() + p.Substring(1)
+        else file
+
+    let inline combinePaths path1 (path2 : string) = Path.Combine(path1, path2.TrimStart [| '\\'; '/' |])
+
     module Operators =
-        let (/) a b = Path.Combine(a, b)
+        let inline (/) path1 path2 = combinePaths path1 path2
 
     let getFullPathSafe (path: string) =
         try Path.GetFullPath path
@@ -251,8 +221,33 @@ module Map =
         |> Map.toList
         |> List.map fst
 
+open System.Collections.Concurrent
+
 [<AutoOpen>]
 module Utils =
     let tee f a =
         f a
         a
+
+    type ConcurrentDictionary<'key, 'value> with
+        member x.TryFind key =
+            match x.TryGetValue key with
+            | true, value -> Some value
+            | _ -> None
+
+[<RequireQualifiedAccess>]
+type ResultOrString<'a> = Result<'a, string>
+
+type Document = {
+    FullName: string
+    LineCount: int
+    GetText: unit -> string
+    GetLineText0: int -> string
+    GetLineText1: int -> string
+}
+
+type Serializer = obj -> string
+type ProjectFilePath = string
+type SourceFilePath = string
+type FilePath = string
+type LineStr = string

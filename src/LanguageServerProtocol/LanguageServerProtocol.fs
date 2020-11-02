@@ -2261,14 +2261,11 @@ module Server =
         [
             "initialize", requestHandling (fun s p -> s.Initialize(p))
             "initialized", requestHandling (fun s p -> s.Initialized(p) |> notificationSuccess)
-            (*
             "textDocument/hover", requestHandling (fun s p -> s.TextDocumentHover(p))
-            *)
             "textDocument/didOpen", requestHandling (fun s p -> s.TextDocumentDidOpen(p) |> notificationSuccess)
             "textDocument/didChange", requestHandling (fun s p -> s.TextDocumentDidChange(p) |> notificationSuccess)
             "textDocument/completion", requestHandling (fun s p -> s.TextDocumentCompletion(p))
             "completionItem/resolve", requestHandling (fun s p -> s.CompletionItemResolve(p))
-            (*
             "textDocument/rename", requestHandling (fun s p -> s.TextDocumentRename(p))
             "textDocument/definition", requestHandling (fun s p -> s.TextDocumentDefinition(p))
             "textDocument/typeDefinition", requestHandling (fun s p -> s.TextDocumentTypeDefinition(p))
@@ -2288,9 +2285,7 @@ module Server =
             "textDocument/onTypeFormatting", requestHandling (fun s p -> s.TextDocumentOnTypeFormatting(p))
             "textDocument/willSave", requestHandling (fun s p -> s.TextDocumentWillSave(p) |> notificationSuccess)
             "textDocument/willSaveWaitUntil", requestHandling (fun s p -> s.TextDocumentWillSaveWaitUntil(p))
-            *)
             "textDocument/didSave", requestHandling (fun s p -> s.TextDocumentDidSave(p) |> notificationSuccess)
-            (*
             "textDocument/didClose", requestHandling (fun s p -> s.TextDocumentDidClose(p) |> notificationSuccess)
             "textDocument/documentSymbol", requestHandling (fun s p -> s.TextDocumentDocumentSymbol(p))
             "textDocument/foldingRange", requestHandling (fun s p -> s.TextDocumentFoldingRange(p))
@@ -2299,7 +2294,7 @@ module Server =
             "workspace/didChangeWorkspaceFolders", requestHandling (fun s p -> s.WorkspaceDidChangeWorkspaceFolders (p) |> notificationSuccess)
             "workspace/didChangeConfiguration", requestHandling (fun s p -> s.WorkspaceDidChangeConfiguration (p) |> notificationSuccess)
             "workspace/symbol", requestHandling (fun s p -> s.WorkspaceSymbol (p))
-            "workspace/executeCommand ", requestHandling (fun s p -> s.WorkspaceExecuteCommand (p)) *)
+            "workspace/executeCommand ", requestHandling (fun s p -> s.WorkspaceExecuteCommand (p))
             "shutdown", requestHandling (fun s _ -> s.Shutdown() |> notificationSuccess)
             "exit", requestHandling (fun s _ -> s.Exit() |> notificationSuccess)
         ]
