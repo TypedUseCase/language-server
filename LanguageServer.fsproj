@@ -5,7 +5,12 @@
     <OutputType>Exe</OutputType>
     <TargetFramework>netcoreapp3.1</TargetFramework>
     <PackageId>Tuc.LanguageServer</PackageId>
+    <Description>Language server for a Tuc extension.</Description>
     <Version>0.0.0</Version>
+    <PackageProjectUrl>https://github.com/TypedUseCase/language-server</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/TypedUseCase/language-server.git</RepositoryUrl>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <PackageTags>typed-use-case;tuc;tuc-language;language-server;language-server-protocol;lsp</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>
@@ -20,14 +25,22 @@
     -->
     <ProjectReference Include="src/LanguageServer.Logging/LanguageServer.Logging.fsproj" />
     <ProjectReference Include="src/LanguageServerProtocol/LanguageServerProtocol.fsproj" />
-
-    <ProjectReference Include="src/Tuc.Parser/Tuc.Parser.fsproj" />
   </ItemGroup>
+
+  <!-- For local development -->
+  <!-- <ItemGroup>
+    <ProjectReference Include="../tuc/tuc-parser/TucParser.fsproj">
+      <Name>TucParser.fsproj</Name>
+    </ProjectReference>
+  </ItemGroup> -->
 
   <ItemGroup>
     <Compile Include="src/LanguageServer/Utils.fs" />
     <Compile Include="src/LanguageServer/FileSystem.fs" />
     <Compile Include="src/LanguageServer/Console.fs" />
+
+    <!-- Tuc -->
+    <Compile Include="src/LanguageServer/TucHelpers.fs" />
 
     <!-- LSP -->
     <Compile Include="src/LanguageServer/State.fs" />

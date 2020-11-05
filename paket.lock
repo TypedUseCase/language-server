@@ -282,6 +282,11 @@ NUGET
       FSharp.Core (>= 4.7.2)
       FSharp.Data (>= 3.3.3)
       MF.ConsoleApplication (>= 2.0)
+    Tuc.Parser (1.0)
+      FSharp.Core (>= 4.7.2)
+      FSharp.Data (>= 3.3.3)
+      MF.ConsoleApplication (>= 2.0)
+      Tuc.DomainResolver (>= 1.0)
 GITHUB
   remote: TheAngryByrd/FsLibLog
     src/FsLibLog/FsLibLog.fs (f81cba440bf0476bb4e2262b57a067a0d6ab78a7)

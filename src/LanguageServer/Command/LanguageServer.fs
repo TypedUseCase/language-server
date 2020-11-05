@@ -15,8 +15,8 @@ module LanguageServer =
         let arguments = []
         let options = []
 
-        let private start (logger: ILog) commands =
-            let result = Tuc.LanguageServer.Lsp.start commands
+        let private start (logger: ILog) output commands =
+            let result = Tuc.LanguageServer.Lsp.start output commands
 
             logger.info (Log.setMessage <| sprintf "[LS] Start with %A" result)
 
@@ -38,13 +38,42 @@ module LanguageServer =
                     []
             |> tee (fun dt -> logger.info (Log.setMessage <| sprintf "Resolved domain types [%d]" (dt |> List.length)))
 
+        open LspHelpers
+
+        let private parseTucs (logger: ILog) (input, output) domainTypes (textDocument: LanguageServerProtocol.Types.TextDocumentItem) =
+            let file = textDocument.GetFilePath()
+            logger.info (Log.setMessage <| sprintf "Parse tuc for %A" file)
+
+            let logInfo = Log.setMessage >> logger.info
+
+            try
+                match Tuc.Parser.Parser.parse output true domainTypes file with
+                | Ok parsed ->
+                    parsed
+                    |> List.length
+                    |> sprintf "Doc %s parsed into %A tucs" file
+                    |> logInfo
+
+                    parsed
+                | Error e ->
+                    e
+                    |> sprintf "Doc %s NOT parsed due to:\n%A" file
+                    |> logInfo
+                    []
+            with e ->
+                e
+                |> sprintf "Doc %s NOT parsed due to exception:\n%A" file
+                |> logInfo
+                []
+
         let execute (logger: ILog): ExecuteCommand = fun (input, output) ->
             output.Title "[LS] Start"
             logger.info (Log.setMessage "Start")
 
-            start logger {
+            start logger output {
                 Commands.defaults with
-                    ResolveDomainTypes = resolveDomainTypes logger (input, output)
+                    ResolveDomainTypes = resolveDomainTypes logger (input, output)  // todo - pass a new logger
+                    ParseTucs = parseTucs logger (input, output)    // todo - pass a new logger
             }
 
             logger.info (Log.setMessage <| sprintf "Started at %A" System.DateTime.Now)
