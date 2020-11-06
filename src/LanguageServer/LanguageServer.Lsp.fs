@@ -14,10 +14,12 @@ module Lsp =
     open LanguageServerProtocol.Server
     open LanguageServerProtocol.Types
     open LspHelpers
+    open TucHelpers
     open Newtonsoft.Json.Linq
     //open ProjectSystem
     open System
     open System.IO
+    open ErrorHandling
 
     module FcsRange = FSharp.Compiler.Range
 
@@ -66,7 +68,7 @@ module Lsp =
         let mutable config = FSharpConfig.Default
         let mutable rootPath : string option = None
 
-        let mutable domainTypes: DomainType list = []
+        let mutable domainTypes: DomainType list = []   // todo - move to state?
 
         /// centralize any state changes when the config is updated here
         let updateConfig (newConfig: FSharpConfig) =
@@ -74,17 +76,11 @@ module Lsp =
             config <- newConfig
 
         //TODO: Thread safe version
-        let fixes = System.Collections.Generic.Dictionary<DocumentUri, (LanguageServerProtocol.Types.Range * TextEdit) list>()
-        let analyzerFixes = System.Collections.Generic.Dictionary<(DocumentUri * string), (LanguageServerProtocol.Types.Range * TextEdit) list>()
+        // let fixes = System.Collections.Generic.Dictionary<DocumentUri, (LanguageServerProtocol.Types.Range * TextEdit) list>()
+        // let analyzerFixes = System.Collections.Generic.Dictionary<(DocumentUri * string), (LanguageServerProtocol.Types.Range * TextEdit) list>()
 
         let logInfo message =
             logger.info (Log.setMessage message)
-
-            //lspClient.WindowLogMessage({ Type = MessageType.Info; Message = sprintf "[cl.log] %s" message })
-            //|> Async.Start
-
-        let parseFile (p: DidChangeTextDocumentParams) =
-            logInfo "LanguageServer.Lsp.parseFile ..."
 
         ///Helper function for handling file requests using **recent** type check results
         //member x.fileHandler<'a> (f: SourceFilePath -> ParseAndCheckResults -> string [] -> AsyncLspResult<'a>) (file: SourceFilePath) : AsyncLspResult<'a> =
@@ -153,36 +149,33 @@ module Lsp =
         }
 
         ///Helper function for handling Position requests using **recent** type check results
-        member x.positionHandler<'a, 'b when 'b :> ITextDocumentPositionParams> (f: 'b -> FcsRange.pos (* -> ParseAndCheckResults *) -> string -> string [] ->  AsyncLspResult<'a>) (arg: 'b) : AsyncLspResult<'a> =
+        member x.positionHandler<'a, 'b when 'b :> ITextDocumentPositionParams> (empty: 'a) (f: 'b -> Tuc.Position -> TucSegment option ->  AsyncLspResult<'a>) (arg: 'b) : AsyncLspResult<'a> =
             async {
-                let pos = arg.GetFcsPos()
                 let file = arg.GetFilePath()
+                let pos = arg.GetTucPosition()
                 logger.info (Log.setMessage "PositionHandler - Position request: {file} at {pos}" >> Log.addContextDestructured "file" file >> Log.addContextDestructured "pos" pos)
 
-                return!
-                    match commands.TryGetFileCheckerOptionsWithLinesAndLineStr(file, pos) with
-                    | ResultOrString.Error s ->
-                        logger.error (Log.setMessage "PositionHandler - Getting file checker options for {file} failed" >> Log.addContextDestructured "error" s >> Log.addContextDestructured "file" file)
-                        AsyncLspResult.internalError s
-                    | ResultOrString.Ok (lines, lineStr) ->
-                        try
-                            let tyResOpt = None // commands.TryGetRecentTypeCheckResultsForFile(file, options)
-                            match tyResOpt with
-                            | None ->
-                                logger.info (Log.setMessage "PositionHandler - Cached typecheck results not yet available for {file}" >> Log.addContextDestructured "file" file)
-                                AsyncLspResult.internalError "Cached typecheck results not yet available"
-                            | Some tyRes ->
+                match arg.GetLanguageId() with
+                | Some "tuc" ->
+                    return!
+                        match commands.TryGetLineSegment(file, pos) with
+                        | ResultOrString.Error s ->
+                            logger.error (Log.setMessage "PositionHandler - Getting file for {file} failed due to {error}" >> Log.addContextDestructured "error" s >> Log.addContextDestructured "file" file)
+                            AsyncLspResult.internalError s
+                        | ResultOrString.Ok (segment) ->
+                            try
                                 async {
-                                    let! r = Async.Catch (f arg pos (* tyRes *) lineStr lines)
+                                    let! r = Async.Catch (f arg pos segment)
                                     match r with
                                     | Choice1Of2 r -> return r
                                     | Choice2Of2 e ->
                                         logger.error (Log.setMessage "PositionHandler - Failed during child operation on file {file}" >> Log.addContextDestructured "file" file >> Log.addExn e)
                                         return LspResult.internalError e.Message
                                 }
-                        with e ->
-                            logger.error (Log.setMessage "PositionHandler - Operation failed for file {file}" >> Log.addContextDestructured "file" file >> Log.addExn e)
-                            AsyncLspResult.internalError e.Message
+                            with e ->
+                                logger.error (Log.setMessage "PositionHandler - Operation failed for file {file}" >> Log.addContextDestructured "file" file >> Log.addExn e)
+                                AsyncLspResult.internalError e.Message
+                | _ -> return success empty
             }
 
         // todo<tuc> - handle when tuc will be generated by extension
@@ -194,16 +187,9 @@ module Lsp =
             logInfo <| sprintf "TextDocumentDidOpen %A" { p with TextDocument = { p.TextDocument with Text = "..." } }
 
             match p.TextDocument.LanguageId with
-            | "tuc" ->
-                let parsedTucs = p.TextDocument |> commands.ParseTucs domainTypes
-                // todo - cache parsed tucs for a file
-
-                ()
-
+            | "tuc" -> do! p.TextDocument |> commands.ParseTucs domainTypes
             | "fsharp" -> logInfo "F# language"
             | _ -> ()
-
-            return ()
         }
 
         override __.TextDocumentDidChange(p: DidChangeTextDocumentParams) = async {
@@ -223,67 +209,23 @@ module Lsp =
             return ()
         }
 
-        override x.TextDocumentHover(p: TextDocumentPositionParams) = async {
-
+        override x.TextDocumentHover(p: TextDocumentPositionParams) =
             logInfo <| sprintf "TextDocumentHover %A" p.TextDocument
+            let emptyResult = Some { Contents = MarkedStrings [||]; Range = None }
 
-            let! r = async {
-                let doc = p.TextDocument
-                let file = doc.GetFilePath()
-                let pos = p.GetFcsPos()
-
-                let line = p.Position.Line
-                let col = p.Position.Character
-                let lines = file |> commands.TryGetFileCheckerOptionsWithLines
-
-                let word =
-                    match lines with
-                    | Ok lines ->
-                        let lineStr = lines.[line]
-                        let word = lineStr.Substring(0, col)
-                        word
-                    | _ ->
-                        "nothing" // todo - add a proper error for hover
-
-                (* let hover =
-                    [
-                        "# Hover"
-                        word
-                        (*
-                        "```typescript"
-                        "someCode();"
-                        "```"
-                        *)
-                    ]
-                    |> String.concat "\n"
-                    |> markdown *)
-
-                return success (Some {
-                    Contents = MarkedStrings [|
-                        MarkedString.WithLanguage { Language = "tuc"; Value = word }
-                        MarkedString.String "Description: Participants section where all use-case participants must be defined."
-                    |]
-                    Range = None
-                    (* Range = Some {
-                        Start = { Line = 2; Character = 0 }
-                        End = { Line = 2; Character = 12 }
-                    } *)
-                })
-            }
-
-            let! _ =
-                p
-                |> x.positionHandler (fun p pos lineStr lines ->
+            match p.GetLanguageId() with
+            | Some "tuc" ->
+                p |> x.positionHandler emptyResult (fun p pos segment ->
                     async {
-                        return success (Some {
-                            Contents = MarkedString (MarkedString.String "hover from handler")
-                            Range = None
-                        })
+                        logger.info (Log.setMessage "Hover at {position}" >> Log.addContextDestructured "position" pos )
+
+                        return
+                            match segment with
+                            | Some { Hover = Some hover } -> success (Some hover)
+                            | _ -> success emptyResult   // todo - for an empty respons: success None, it returns with an LSP error
                     }
                 )
-
-            return r
-        }
+            | _ -> success emptyResult |> Async.retn
 
         override __.TextDocumentDefinition(p: TextDocumentPositionParams) = async {
             // todo - uncomment some server capabilities? - this is for go to definition
@@ -305,20 +247,10 @@ module Lsp =
             // todo - tady je zase jen Identifier na text doc, ktery ma jen URI, takze bud si nekde ukladat (pri open?) cache o souborech podle URI, kde bude vsechno a pak to vytahovat
             // nebo kouknout jeste, jestli to tam opravdu neni a jen to v F# neni naimplementovane
 
-            (* match p.TextDocument.LanguageId with
-            | "tuc" ->
-                let parsedTucs = p.TextDocument |> commands.ParseTucs domainTypes
-                // todo - cache parsed tucs for a file
-                ()
-
-            | "fsharp" ->
-                logInfo "F# language"
-                domainTypes <- commands.ResolveDomainTypes rootPath
-            | _ -> () *)
-
-            domainTypes <- commands.ResolveDomainTypes rootPath
-
-            return ()
+            match p.TextDocument.GetLanguageId() with
+            | Some "tuc" -> do! p.TextDocument.GetFilePath() |> commands.ParseTucsForFile domainTypes
+            | Some "fsharp" -> domainTypes <- commands.ResolveDomainTypes rootPath
+            | _ -> ()
         }
 
         override __.WorkspaceDidChangeWatchedFiles(p) = async {
@@ -344,146 +276,55 @@ module Lsp =
             return success cl
         }
 
-        override __.TextDocumentCompletion(p: CompletionParams) = async {
-            //logInfo <| sprintf "TextDocumentCompletion %A" p
+        override x.TextDocumentCompletion(p: CompletionParams) =
             logger.info (Log.setMessage "TextDocumentCompletion Request: {context}" >> Log.addContextDestructured "context" p)
+            let emptyResult = Some { IsIncomplete = true; Items = [||] }
 
-            // Sublime-lsp doesn't like when we answer null so we answer an empty list instead
-            let noCompletion = success (Some { IsIncomplete = true; Items = [||] })
-            let doc = p.TextDocument
-            let file = doc.GetFilePath()
-            let pos = p.GetFcsPos()
+            // todo:
+            // - kdyz je trigger character null, tak je to invoke na ctrl+space (nabizi vsechno, i kw)
+            // - kdyz je trigger character ., tak je to prirozene pri psani -> Servise -> . -> napovida...
+            // - problem asi bude, ze tuc.parser asi nezvladne servisu, eventy,... kdyz konci teckou, bude to brat jako chybu, takze nebudou k dispozici segmenty
+            // - poresit taky verze souboru, cekani, ...
+            // - jinak muzou byt rovnou tak jako Hover = Hover option, i CompletionItems = CompletionItem list, ktere bude "predpripravene" a rovnou ve statu
 
-            logInfo <| sprintf "[CI] file: %s | pos: %A" file pos
+            match p.GetLanguageId() with
+            | Some "tuc" ->
+                p |> x.positionHandler emptyResult (fun p pos segment -> async {
+                    let trigger =
+                        match p.Context with
+                        | Some { triggerCharacter = (Some ".") } -> "by: ."
+                        | Some { triggerCharacter = (Some t) } -> sprintf "by: %s" t
+                        | _ -> "by ctrl+space"
 
-            (*
-            [Info  - 3:47:27 PM] [cl.log] TextDocumentCompletion
-            {
-                TextDocument = { Uri = "file:///Users/chromecp/fsharp/tuc-extension/etc/events.tuc" }
-                Position = { Line = 17
-                Character = 7
-            }
-            Context = Some {
-                triggerKind = Invoked
-                triggerCharacter = None
-            } }
-            [Info  - 3:47:27 PM] [cl.log] [CI] file: /Users/chromecp/fsharp/tuc-extension/etc/events.tuc | pos: (18,8)
-             *)
+                    logger.info (
+                        Log.setMessage "TextDocumentCompletion: Position {position} | Segment {segment} | Trigger {trigger}"
+                        >> Log.addContextDestructured "position" pos
+                        >> Log.addContextDestructured "segment" segment
+                        >> Log.addContextDestructured "trigger" trigger
+                    )
 
-            (*
-                // todo
-                - kouknout na TryGetFileCheckerOptionsWithLines
-                    - vraci to lines (asi otevreneho souboru)
-                    - z toho pak vytahnout aktualni "slovo", ke kteremu se ma napovidat
-                    - ale asi bude lepsi to proste vyparsovat rucne primo z TextDocument
+                    (* [|
+                        {
+                            CompletionItem.Create("CI item") with
+                                Kind = Some CompletionItemKind.Class
+                                InsertText = Some "Insert text"
+                                SortText = Some (sprintf "%06d" 0)
+                                FilterText = Some "CI item"
+                                // Label = ""
+                        }
+                    |] *)
 
-                - najak mapovat DomainTypes -> CompletionItem a filterovat podle hledaneho slova (asi? - kouknout na FSAC)
-                    - poresit taky jestli funguje watch na .fsx fily (to by se asi melo spis resit v didChange na fsx)
+                    let ci =
+                        {
+                            IsIncomplete = false;
+                            Items = segment |> Option.map (TucSegment.completionItem) |> Option.defaultValue [||]
+                        }
 
-             *)
+                    return success (Some ci)
+                })
+            | _ -> success emptyResult |> Async.retn
 
-
-            (* let! res =
-                match commands.TryGetFileCheckerOptionsWithLines file with
-                | ResultOrString.Error s -> AsyncLspResult.internalError s
-                | ResultOrString.Ok (options, lines) ->
-                    let line = p.Position.Line
-                    let col = p.Position.Character
-                    let lineStr = lines.[line]
-                    let word = lineStr.Substring(0, col)
-                    let ok = line <= lines.Length && line >= 0 && col <= lineStr.Length + 1 && col >= 0
-                    if not ok then
-                        logger.info (Log.setMessage "TextDocumentCompletion Not OK:\n COL: {col}\n LINE_STR: {lineStr}\n LINE_STR_LENGTH: {lineStrLength}"
-                                     >> Log.addContextDestructured "col" col
-                                     >> Log.addContextDestructured "lineStr" lineStr
-                                     >> Log.addContextDestructured "lineStrLength" lineStr.Length)
-
-                        AsyncLspResult.internalError "not ok"
-                    elif (lineStr.StartsWith "#" && (KeywordList.hashDirectives.Keys |> Seq.exists (fun k -> k.StartsWith word ) || word.Contains "\n" )) then
-                        let completionList = { IsIncomplete = false; Items = KeywordList.hashSymbolCompletionItems }
-                        async.Return (success (Some completionList))
-                    else
-                        async {
-                            let! tyResOpt =
-                                match p.Context with
-                                | None -> commands.TryGetRecentTypeCheckResultsForFile(file, options) |> async.Return
-                                | Some ctx ->
-                                    //ctx.triggerKind = CompletionTriggerKind.Invoked ||
-                                    if  (ctx.triggerCharacter = Some ".") then
-                                        commands.TryGetLatestTypeCheckResultsForFile(file)
-                                    else
-                                        commands.TryGetRecentTypeCheckResultsForFile(file, options) |> async.Return
-
-                            match tyResOpt with
-                            | None ->
-                              logger.info (Log.setMessage "TextDocumentCompletion - no type check results")
-                              return LspResult.internalError "no type check results"
-                            | Some tyRes ->
-                                let! res = commands.Completion tyRes pos lineStr lines file None (config.KeywordsAutocomplete) (config.ExternalAutocomplete)
-                                let res =
-                                    match res with
-                                    | CoreResponse.Res(decls, keywords) ->
-                                        let items =
-                                            decls
-                                            |> Array.mapi (fun id d ->
-                                                let code =
-                                                    if System.Text.RegularExpressions.Regex.IsMatch(d.Name, """^[a-zA-Z][a-zA-Z0-9']+$""") then d.Name
-                                                    elif d.NamespaceToOpen.IsSome then d.Name
-                                                    else PrettyNaming.QuoteIdentifierIfNeeded d.Name
-                                                let label =
-                                                    match d.NamespaceToOpen with
-                                                    | Some no -> sprintf "%s (open %s)" d.Name no
-                                                    | None -> d.Name
-
-                                                { CompletionItem.Create(d.Name) with
-                                                    Kind = glyphToCompletionKind d.Glyph
-                                                    InsertText = Some code
-                                                    SortText = Some (sprintf "%06d" id)
-                                                    FilterText = Some d.Name
-                                                    Label = label
-                                                }
-                                            )
-                                        let its = if not keywords then items else Array.append items KeywordList.keywordCompletionItems
-                                        let completionList = { IsIncomplete = false; Items = its}
-                                        success (Some completionList)
-                                    | _ ->
-                                      logger.info (Log.setMessage "TextDocumentCompletion - no completion results")
-                                      noCompletion
-                                return res
-                        } *)
-
-            return success (Some { IsIncomplete = false; Items = [|
-                { CompletionItem.Create("CI item") with
-                    Kind = Some CompletionItemKind.Class
-                    InsertText = Some "Insert text"
-                    SortText = Some (sprintf "%06d" 0)
-                    FilterText = Some "CI item"
-                    // Label = ""
-                }
-            |] })
-        }
-
-        override __.CompletionItemResolve(ci) = async {
-            //logInfo <| sprintf "CompletionItemResolve %A" ci
-            logger.info (Log.setMessage "CompletionItemResolve Request: {parms}" >> Log.addContextDestructured "parms" ci )
-
-            // todo - tahle metoda je mozna zbytecna, protoze ted budu mit asi vsechno rovnou v ci
-
-            (* let! res = commands.Helptext ci.InsertText.Value
-            let res =
-                match res with
-                | CoreResponse.InfoRes msg | CoreResponse.ErrorRes msg ->
-                    ci
-                | CoreResponse.Res (HelpText.Simple (name, str)) ->
-                    let d = Documentation.Markup (markdown str)
-                    {ci with Detail = Some name; Documentation = Some d  }
-                | CoreResponse.Res (HelpText.Full (name, tip, additionalEdit)) ->
-                    let (si, comment) = (TipFormatter.formatTip tip) |> List.collect id |> List.head
-                    //TODO: Add insert namespace
-                    let d = Documentation.Markup (markdown comment)
-                    {ci with Detail = Some si; Documentation = Some d  } *)
-            return success ci
-        }
+        override __.CompletionItemResolve(ci) = AsyncLspResult.success ci
 
     let startCore consoleOutput (commands : Commands) =
         use input = Console.OpenStandardInput()

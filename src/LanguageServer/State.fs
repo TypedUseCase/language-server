@@ -7,112 +7,144 @@ open System.Collections.Concurrent
 open System.Threading
 open FSharp.Compiler.Range
 open FsLibLog
+open TucHelpers
 
 type DeclName = string
 type CompletionNamespaceInsert = string * int * int * string
 
 type State =
-  {
-    Logger: ILog
+    {
+        Logger: ILog
 
-    Files : ConcurrentDictionary<SourceFilePath, VolatileFile>
-    LastCheckedVersion: ConcurrentDictionary<SourceFilePath, int>
+        Files: ConcurrentDictionary<SourceFilePath, VolatileFile>
+        LastCheckedVersion: ConcurrentDictionary<SourceFilePath, int>
 
-    HelpText : ConcurrentDictionary<DeclName, FSharpToolTipText>
-    Declarations: ConcurrentDictionary<DeclName, FSharpDeclarationListItem * pos * SourceFilePath>
-    CompletionNamespaceInsert : ConcurrentDictionary<DeclName, CompletionNamespaceInsert>
-    mutable CurrentAST: FSharp.Compiler.SyntaxTree.ParsedInput option
+        // HelpText: ConcurrentDictionary<DeclName, FSharpToolTipText>  // this is used as a Documentation for CompletationItem
+        // Declarations: ConcurrentDictionary<DeclName, FSharpDeclarationListItem * pos * SourceFilePath> // this is probably used for a GoToDeclaration
+        CompletionNamespaceInsert: ConcurrentDictionary<DeclName, CompletionNamespaceInsert>
+        // mutable CurrentAST: FSharp.Compiler.SyntaxTree.ParsedInput option
+        // NavigationDeclarations: ConcurrentDictionary<SourceFilePath, FSharpNavigationTopLevelDeclaration[]>
+        // ParseResults: ConcurrentDictionary<SourceFilePath, FSharpParseFileResults>
+        CancellationTokens: ConcurrentDictionary<SourceFilePath, CancellationTokenSource list>
+    }
 
-    NavigationDeclarations : ConcurrentDictionary<SourceFilePath, FSharpNavigationTopLevelDeclaration[]>
-    ParseResults: ConcurrentDictionary<SourceFilePath, FSharpParseFileResults>
-    CancellationTokens: ConcurrentDictionary<SourceFilePath, CancellationTokenSource list>
+    static member Initial(logger: ILog) =
+        {
+            Logger = logger
 
-    ScriptProjectOptions: ConcurrentDictionary<SourceFilePath, int * FSharpProjectOptions>
+            Files = ConcurrentDictionary()
+            LastCheckedVersion = ConcurrentDictionary()
+            // HelpText = ConcurrentDictionary()
+            // Declarations = ConcurrentDictionary()
+            // CurrentAST = None
+            CompletionNamespaceInsert = ConcurrentDictionary()
+            CancellationTokens = ConcurrentDictionary()
+            // NavigationDeclarations = ConcurrentDictionary()
+            // ParseResults = ConcurrentDictionary()
+            // ScriptProjectOptions = ConcurrentDictionary()
+            // ColorizationOutput = false
+        }
 
-    mutable ColorizationOutput: bool
-  }
+    member private x.LogInfo(message) =
+        x.Logger.info (Log.setMessage message)
 
-  static member Initial (logger: ILog) = {
-      Logger = logger
-      Files = ConcurrentDictionary()
-      LastCheckedVersion = ConcurrentDictionary()
-      HelpText = ConcurrentDictionary()
-      Declarations = ConcurrentDictionary()
-      CurrentAST = None
-      CompletionNamespaceInsert = ConcurrentDictionary()
-      CancellationTokens = ConcurrentDictionary()
-      NavigationDeclarations = ConcurrentDictionary()
-      ParseResults = ConcurrentDictionary()
-      ScriptProjectOptions = ConcurrentDictionary()
-      ColorizationOutput = false }
+    member x.TryGetFileVersion(file: SourceFilePath): int option =
+        let file = Path.normalize file
 
-  member x.TryGetFileVersion (file: SourceFilePath) : int option =
-    let file = Path.normalize file
+        x.Files.TryFind file
+        |> Option.bind (fun f -> f.Version)
 
-    x.Files.TryFind file
-    |> Option.bind (fun f -> f.Version)
+    member x.TryGetLastCheckedVersion(file: SourceFilePath): int option =
+        let file = Path.normalize file
 
-  member x.TryGetLastCheckedVersion (file: SourceFilePath) : int option =
-    let file = Path.normalize file
+        x.LastCheckedVersion.TryFind file
 
-    x.LastCheckedVersion.TryFind file
+    member x.SetFileVersion (file: SourceFilePath) (version: int) =
+        x.Files.TryFind file
+        |> Option.iter (fun n ->
+            let fileState = { n with Version = Some version }
+            x.Files.[file] <- fileState)
 
-  member x.SetFileVersion (file: SourceFilePath) (version: int) =
-    x.Files.TryFind file
-    |> Option.iter (fun n ->
-      let fileState = {n with Version = Some version}
-      x.Files.[file] <- fileState
-    )
+    member x.SetLastCheckedVersion (file: SourceFilePath) (version: int) =
+        x.LastCheckedVersion.[file] <- version
 
-  member x.SetLastCheckedVersion (file: SourceFilePath) (version: int) =
-    x.LastCheckedVersion.[file] <- version
+    member x.AddFileText(file: SourceFilePath, lines: LineStr [], segments, version) =
+        let file = Path.normalize file
 
-  member x.AddFileText(file: SourceFilePath, lines: LineStr[], version) =
-    let file = Path.normalize file
-    let fileState = { Lines = lines; Touched = DateTime.Now; Version = version }
-    x.Files.[file] <- fileState
+        x.Files.[file] <- {
+            Touched = DateTime.Now
+            Version = version
+            Lines = lines
+            Segments = segments
+        }
 
-  member x.AddCancellationToken(file : SourceFilePath, token: CancellationTokenSource) =
-    x.CancellationTokens.AddOrUpdate(file, [token], fun _ lst -> token::lst)
-    |> ignore
+        x.LogInfo <| sprintf "File %A cached - lines: %A | segments: %A." file lines.Length segments.Count
 
-  member x.GetCancellationTokens(file : SourceFilePath) =
-    let lst = x.CancellationTokens.GetOrAdd(file, fun _ -> [])
-    x.CancellationTokens.TryRemove(file) |> ignore
-    lst
+    member x.AddCancellationToken(file: SourceFilePath, token: CancellationTokenSource) =
+        x.CancellationTokens.AddOrUpdate(file, [ token ], (fun _ lst -> token :: lst))
+        |> ignore
 
-  member x.TryGetFileCheckerOptionsWithLines(file: SourceFilePath) : ResultOrString<LineStr[]> =
-    let file = Path.normalize file
-    match x.Files.TryFind(file) with
-    | None when file |> File.Exists ->
-      x.Logger.info (Log.setMessage "Read file lines: {file}" >> Log.addContextDestructured "file" file )
+    member x.GetCancellationTokens(file: SourceFilePath) =
+        let lst =
+            x.CancellationTokens.GetOrAdd(file, (fun _ -> []))
 
-      file
-      |> File.ReadAllLines
-      |> tee (fun lines -> x.AddFileText(file, lines, None))
-      |> ResultOrString.Ok
-    | Some (volFile) -> ResultOrString.Ok (volFile.Lines)
-    | _ -> ResultOrString.Error (sprintf "File '%s' is not found." file)
+        x.CancellationTokens.TryRemove(file) |> ignore
+        lst
 
-  member x.TryGetFileCheckerOptionsWithSource(file: SourceFilePath) : ResultOrString<string> =
-    let file = Path.normalize file
-    match x.TryGetFileCheckerOptionsWithLines(file) with
-    | ResultOrString.Error x -> ResultOrString.Error x
-    | Ok (lines) -> Ok (String.concat "\n" lines)
+    member x.TryGetFileLines(file: SourceFilePath): ResultOrString<LineStr []> =
+        let file = Path.normalize file
 
-  member x.TryGetFileSource(file: SourceFilePath) : ResultOrString<string[]> =
-    let file = Path.normalize file
-    match x.Files.TryFind(file) with
-    | None -> ResultOrString.Error (sprintf "File '%s' not parsed" file)
-    | Some f -> Ok (f.Lines)
+        match x.Files.TryFind(file) with
+        | None when file |> File.Exists ->
+            x.Logger.info (Log.setMessage "Read file lines: {file}" >> Log.addContextDestructured "file" file)
 
-  member x.TryGetFileCheckerOptionsWithLinesAndLineStr(file: SourceFilePath, pos : pos) : ResultOrString<LineStr[] * LineStr> =
-    let file = Path.normalize file
-    match x.TryGetFileCheckerOptionsWithLines(file) with
-    | ResultOrString.Error x -> ResultOrString.Error x
-    | Ok (lines) ->
-      let ok =
-        pos.Line <= lines.Length && pos.Line >= 1 &&
-        pos.Column <= lines.[pos.Line - 1].Length + 1 && pos.Column >= 1
-      if not ok then ResultOrString.Error "Position is out of range"
-      else Ok (lines, lines.[pos.Line - 1])
+            file
+            |> File.ReadAllLines
+            |> tee (fun lines -> x.AddFileText(file, lines, TucSegments(), None))
+            |> ResultOrString.Ok
+
+        | Some (volFile) -> ResultOrString.Ok(volFile.Lines)
+        | _ -> ResultOrString.Error(sprintf "File '%s' is not found." file)
+
+    member x.TryGetFileSource(file: SourceFilePath): ResultOrString<string> =
+        let file = Path.normalize file
+
+        match x.TryGetFileLines(file) with
+        | ResultOrString.Error x -> ResultOrString.Error x
+        | Ok (lines) -> Ok(String.concat "\n" lines)
+
+    member x.TryGetLineSegment(file, position): ResultOrString<TucSegment option> =
+        let file = Path.normalize file
+
+        let log segment =
+            x.Logger.info (
+                Log.setMessage "Try get line segments from {file} | Segment {segment}"
+                >> Log.addContextDestructured "file" file
+                >> Log.addContextDestructured "segment" segment
+            )
+
+        match x.Files.TryFind file with
+        | Some volFile ->
+            volFile.Segments
+            |> TucSegment.tryFind position
+            |> tee log
+            |> ResultOrString.Ok
+        | _ ->
+            log "Err: File not parsed."
+            ResultOrString.Error(sprintf "File '%s' is not parsed." file)
+
+    (* member x.TryGetFileLinesAndLineStr(file: SourceFilePath, pos: pos): ResultOrString<LineStr [] * LineStr> =
+        let file = Path.normalize file
+        match x.TryGetFileLines(file) with
+        | ResultOrString.Error x -> ResultOrString.Error x
+        | Ok (lines) ->
+            let ok =
+                pos.Line <= lines.Length
+                && pos.Line >= 1
+                && pos.Column <= lines.[pos.Line - 1].Length + 1
+                && pos.Column >= 1
+
+            if not ok
+            then ResultOrString.Error "Position is out of range"
+            else Ok(lines, lines.[pos.Line - 1])
+ *)

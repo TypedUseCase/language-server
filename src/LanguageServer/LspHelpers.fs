@@ -10,78 +10,36 @@ module LspHelpers =
     open FSharp.Reflection
     open System.Collections.Generic
     open System.Text
-    //open ProjectSystem
 
-    module FcsRange = FSharp.Compiler.Range
+    [<RequireQualifiedAccess>]
+    module Location =
+        let (|IsSingleLine|_|): Tuc.Location -> Tuc.Range option = function
+            | { Range = range } when range.Start.Line = range.End.Line -> Some range
+            | _ -> None
 
     [<AutoOpen>]
     module Conversions =
         module Lsp = LanguageServerProtocol.Types
 
-        let protocolPosToPos (pos: Lsp.Position): FcsRange.pos =
-            FcsRange.mkPos (pos.Line + 1) (pos.Character + 1)
+        let protocolPosToPos (pos: Lsp.Position): Tuc.Position =
+            { Line = pos.Line; Character = pos.Character }
 
-        let posToProtocolPos (pos: FcsRange.pos): Lsp.Position =
-            { Line = pos.Line - 1; Character = pos.Column - 1 }
+        let posToProtocolPos (pos: Tuc.Position): Lsp.Position =
+            { Line = pos.Line; Character = pos.Character }
 
-        let fcsPosToLsp (pos: FcsRange.pos): Lsp.Position =
-            { Line = pos.Line - 1; Character = pos.Column }
+        let protocolRangeToRange (range: Lsp.Range): Tuc.Range =
+            { Start = range.Start |> protocolPosToPos; End = range.End |> protocolPosToPos }
 
-        let fcsRangeToLsp(range: FcsRange.range): Lsp.Range =
-            {
-                Start = fcsPosToLsp range.Start
-                End = fcsPosToLsp range.End
-            }
-
-        let protocolRangeToRange fn (range: Lsp.Range): FcsRange.range =
-            FcsRange.mkRange fn (protocolPosToPos range.Start) (protocolPosToPos range.End)
-
-        (* let symbolUseRangeToLsp (range: SymbolCache.SymbolUseRange): Lsp.Range =
-            {
-                Start = { Line = range.StartLine - 1; Character = range.StartColumn - 1 }
-                End = { Line = range.EndLine - 1; Character = range.EndColumn - 1 }
-            } *)
-
-        (* let fcsRangeToLspLocation(range: FSharp.Compiler.Range.range): Lsp.Location =
-            let fileUri = Path.FilePathToUri range.FileName
-            let lspRange = fcsRangeToLsp range
-            {
-                Uri = fileUri
-                Range = lspRange
-            } *)
-
-        (* let symbolUseRangeToLspLocation (range: SymbolCache.SymbolUseRange): Lsp.Location =
-            let fileUri = Path.FilePathToUri range.FileName
-            let lspRange = symbolUseRangeToLsp range
-            {
-                Uri = fileUri
-                Range = lspRange
-            } *)
-
-        (* let findDeclToLspLocation(decl: FsAutoComplete.FindDeclarationResult): Lsp.Location =
-            match decl with
-            | FsAutoComplete.FindDeclarationResult.ExternalDeclaration ex ->
-                let fileUri = Path.FilePathToUri ex.File
-                {
-                    Uri = fileUri
-                    Range = {
-                        Start = { Line = ex.Line - 1; Character = ex.Column - 1 }
-                        End = { Line = ex.Line - 1; Character = ex.Column - 1 }
-                    }
-                }
-            | FsAutoComplete.FindDeclarationResult.Range r -> fcsRangeToLspLocation r
-            | FsAutoComplete.FindDeclarationResult.File file ->
-                let fileUri = Path.FilePathToUri file
-                {
-                    Uri = fileUri
-                    Range = {
-                        Start = { Line = 0; Character = 0 }
-                        End = { Line = 0; Character = 0 }
-                    }
-                } *)
+        let rangeToProtocolRange (range: Tuc.Range): Lsp.Range =
+            { Start = range.Start |> posToProtocolPos; End = range.End |> posToProtocolPos }
 
         type TextDocumentIdentifier with
             member doc.GetFilePath() = Path.fileUriToLocalPath doc.Uri
+            member doc.GetLanguageId() =
+                match doc.GetFilePath() |> Path.GetExtension with
+                | ".tuc" -> Some "tuc"
+                | ".fs" | ".fsx" -> Some "fsharp"
+                | _ -> None
 
         type VersionedTextDocumentIdentifier with
             member doc.GetFilePath() = Path.fileUriToLocalPath doc.Uri
@@ -91,7 +49,12 @@ module LspHelpers =
 
         type ITextDocumentPositionParams with
             member p.GetFilePath() = p.TextDocument.GetFilePath()
-            member p.GetFcsPos() = protocolPosToPos p.Position
+            member p.GetTucPosition() = protocolPosToPos p.Position
+            member doc.GetLanguageId() =
+                match doc.GetFilePath() |> Path.GetExtension with
+                | ".tuc" -> Some "tuc"
+                | ".fs" | ".fsx" -> Some "fsharp"
+                | _ -> None
 
         let fcsSeverityToDiagnostic = function
             | FSharpErrorSeverity.Error -> DiagnosticSeverity.Error
@@ -99,11 +62,10 @@ module LspHelpers =
 
         let fcsErrorToDiagnostic (error: FSharpErrorInfo) =
             {
-                Range =
-                    {
-                        Start = { Line = error.StartLineAlternate - 1; Character = error.StartColumn }
-                        End = { Line = error.EndLineAlternate - 1; Character = error.EndColumn }
-                    }
+                Range = {
+                    Start = { Line = error.StartLineAlternate - 1; Character = error.StartColumn }
+                    End = { Line = error.EndLineAlternate - 1; Character = error.EndColumn }
+                }
                 Severity = Some (fcsSeverityToDiagnostic error.Severity)
                 Source = "F# Compiler"
                 Message = error.Message
@@ -111,47 +73,6 @@ module LspHelpers =
                 RelatedInformation = Some [||]
                 Tags = None
             }
-
-        let getSymbolInformations (uri: DocumentUri) (glyphToSymbolKind: FSharpGlyph -> SymbolKind option) (topLevel: FSharpNavigationTopLevelDeclaration): SymbolInformation seq =
-            let inner (container: string option) (decl: FSharpNavigationDeclarationItem): SymbolInformation =
-                // We should nearly always have a kind, if the client doesn't send weird capabilites,
-                // if we don't why not assume module...
-                let kind = defaultArg (glyphToSymbolKind decl.Glyph) SymbolKind.Module
-                let location = { Uri = uri; Range = fcsRangeToLsp decl.Range }
-                {
-                    SymbolInformation.Name = decl.Name
-                    Kind = kind
-                    Location = location
-                    ContainerName = container
-                }
-            seq {
-                yield (inner None topLevel.Declaration)
-                yield! topLevel.Nested |> Seq.map (inner (Some topLevel.Declaration.Name))
-            }
-
-        let getCodeLensInformation (uri: DocumentUri) (typ: string) (topLevel: FSharpNavigationTopLevelDeclaration): CodeLens [] =
-            let map (decl: FSharpNavigationDeclarationItem): CodeLens =
-                {
-                    Command = None
-                    Data = Some (Newtonsoft.Json.Linq.JToken.FromObject [|uri; typ |] )
-                    Range = fcsRangeToLsp decl.Range
-                }
-            topLevel.Nested
-            |> Array.filter(fun n ->
-                not (n.Glyph <> FSharpGlyph.Method
-                  && n.Glyph <> FSharpGlyph.OverridenMethod
-                  && n.Glyph <> FSharpGlyph.ExtensionMethod
-                  && n.Glyph <> FSharpGlyph.Field
-                  && n.Glyph <> FSharpGlyph.EnumMember
-                  && n.Glyph <> FSharpGlyph.Property
-                  || n.IsAbstract
-                  || n.EnclosingEntityKind = FSharpEnclosingEntityKind.Interface
-                  || n.EnclosingEntityKind = FSharpEnclosingEntityKind.Record
-                  || n.EnclosingEntityKind = FSharpEnclosingEntityKind.DU
-                  || n.EnclosingEntityKind = FSharpEnclosingEntityKind.Enum
-                  || n.EnclosingEntityKind = FSharpEnclosingEntityKind.Exception)
-            )
-            |> Array.map map
 
         let getText (lines: string []) (r: Lsp.Range) =
             lines.[r.Start.Line].Substring(r.Start.Character, r.End.Character - r.Start.Character)
@@ -254,80 +175,6 @@ module LspHelpers =
                     | FSharpGlyph.ExtensionMethod -> [| SymbolKind.Method |]
                     | FSharpGlyph.Error
                     | _ -> [||])
-
-    (* module Workspace =
-        open ProjectSystem.WorkspacePeek
-        open FsAutoComplete.CommandResponse
-
-        let mapInteresting i =
-            match i with
-            | Interesting.Directory (p, fsprojs) ->
-                WorkspacePeekFound.Directory { WorkspacePeekFoundDirectory.Directory = p; Fsprojs = fsprojs }
-            | Interesting.Solution (p, sd) ->
-                let rec item (x: ProjectSystem.WorkspacePeek.SolutionItem) =
-                    let kind =
-                        match x.Kind with
-                        | SolutionItemKind.Unknown
-                        | SolutionItemKind.Unsupported ->
-                            None
-                        | SolutionItemKind.MsbuildFormat msbuildProj ->
-                            Some (WorkspacePeekFoundSolutionItemKind.MsbuildFormat {
-                                WorkspacePeekFoundSolutionItemKindMsbuildFormat.Configurations = []
-                            })
-                        | SolutionItemKind.Folder(children, files) ->
-                            let c = children |> List.choose item
-                            Some (WorkspacePeekFoundSolutionItemKind.Folder {
-                                WorkspacePeekFoundSolutionItemKindFolder.Items = c
-                                Files = files
-                            })
-                    kind
-                    |> Option.map (fun k -> { WorkspacePeekFoundSolutionItem.Guid = x.Guid; Name = x.Name; Kind = k })
-                let items = sd.Items |> List.choose item
-                WorkspacePeekFound.Solution { WorkspacePeekFoundSolution.Path = p; Items = items; Configurations = [] }
-
-        let getProjectsFromWorkspacePeek loadedWorkspace =
-            match loadedWorkspace with
-            | WorkspacePeekFound.Solution sln ->
-                let rec getProjs (item : WorkspacePeekFoundSolutionItem) =
-                    match item.Kind with
-                    | MsbuildFormat _proj ->
-                        [ item.Name ]
-                    | Folder folder ->
-                        folder.Items |> List.collect getProjs
-                sln.Items
-                |> List.collect getProjs
-            | WorkspacePeekFound.Directory dir ->
-                dir.Fsprojs
-
-        let rec foldFsproj (item : WorkspacePeekFoundSolutionItem) =
-            match item.Kind with
-            | WorkspacePeekFoundSolutionItemKind.Folder folder ->
-                folder.Items |> List.collect foldFsproj
-            | WorkspacePeekFoundSolutionItemKind.MsbuildFormat msbuild ->
-                [ item.Name, msbuild ]
-
-        let countProjectsInSln (sln : WorkspacePeekFoundSolution) =
-            sln.Items |> List.map foldFsproj |> List.sumBy List.length
- *)
-    (* module SigantureData =
-        let formatSignature typ parms : string =
-            let formatType =
-                function
-                | Contains "->" t -> sprintf "(%s)" t
-                | t -> t
-
-            let args =
-                parms
-                |> List.map (fun group ->
-                    group
-                    |> List.map (fun (n,t) -> formatType t)
-                    |> String.concat " * "
-                )
-                |> String.concat " -> "
-
-            if String.IsNullOrEmpty args then typ else args + " -> " + formatType typ *)
-
-
 
     type PlainNotification= { Content: string }
 

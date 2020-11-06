@@ -28,24 +28,27 @@
   </ItemGroup>
 
   <!-- For local development -->
-  <!-- <ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="../tuc/tuc-parser/TucParser.fsproj">
       <Name>TucParser.fsproj</Name>
     </ProjectReference>
-  </ItemGroup> -->
+  </ItemGroup>
 
   <ItemGroup>
     <Compile Include="src/LanguageServer/Utils.fs" />
-    <Compile Include="src/LanguageServer/FileSystem.fs" />
-    <Compile Include="src/LanguageServer/Console.fs" />
+    <Compile Include="src/LanguageServer/LspHelpers.fs" />
 
     <!-- Tuc -->
+    <Compile Include="src/LanguageServer/Hover.fs" />
     <Compile Include="src/LanguageServer/TucHelpers.fs" />
+
+    <!-- Specific utils -->
+    <Compile Include="src/LanguageServer/FileSystem.fs" />
+    <Compile Include="src/LanguageServer/Console.fs" />
 
     <!-- LSP -->
     <Compile Include="src/LanguageServer/State.fs" />
     <Compile Include="src/LanguageServer/Commands.fs" />
-    <Compile Include="src/LanguageServer/LspHelpers.fs" />
     <Compile Include="src/LanguageServer/LanguageServer.Lsp.fs" />
 
     <!-- commands -->

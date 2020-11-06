@@ -170,6 +170,7 @@ module List =
         let toInclude = set including
         list |> List.filter (f >> toInclude.Contains)
 
+    /// Format and prefix all the lines and concat them with a `\n` and add a leading separator and a `\n`
     let formatLines linePrefix f = function
         | [] -> ""
         | lines ->
@@ -179,6 +180,15 @@ module List =
             |> List.map f
             |> String.concat newLineWithPrefix
             |> (+) newLineWithPrefix
+
+    /// Format and prefix all the lines and concat them with a `\n` and add a leading separator
+    let concatLines linePrefix f = function
+        | [] -> ""
+        | lines ->
+            lines
+            |> List.map f
+            |> String.concat ("\n" + linePrefix)
+            |> (+) linePrefix
 
     let formatAvailableItems onEmpty onItems wantedItem definedItems =
         let normalizeItem =
