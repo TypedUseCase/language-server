@@ -133,6 +133,11 @@ type State =
             log "Err: File not parsed."
             ResultOrString.Error(sprintf "File '%s' is not parsed." file)
 
+    member x.CountSegments(file): int =
+        match x.Files.TryFind file with
+        | Some volFile -> volFile.Segments.Count
+        | _ -> -1
+
     (* member x.TryGetFileLinesAndLineStr(file: SourceFilePath, pos: pos): ResultOrString<LineStr [] * LineStr> =
         let file = Path.normalize file
         match x.TryGetFileLines(file) with

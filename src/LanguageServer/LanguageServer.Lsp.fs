@@ -51,6 +51,9 @@ module Lsp =
         member __.NotifyFileParsed (p: PlainNotification) =
             sendServerRequest "fsharp/fileParsed" (box p) |> Async.Ignore
 
+        member __.NotifyTucFileParsed (p: PlainNotification) =
+            sendServerRequest "tuc/fileParsed" (box p) |> Async.Ignore
+
         // TODO: Add the missing notifications
         // TODO: Implement requests
 
@@ -69,6 +72,8 @@ module Lsp =
         let mutable rootPath : string option = None
 
         let mutable domainTypes: DomainType list = []   // todo - move to state?
+
+        let mutable currentDoc: string option = None
 
         /// centralize any state changes when the config is updated here
         let updateConfig (newConfig: FSharpConfig) =
@@ -186,8 +191,12 @@ module Lsp =
         override __.TextDocumentDidOpen(p: DidOpenTextDocumentParams) = async {
             logInfo <| sprintf "TextDocumentDidOpen %A" { p with TextDocument = { p.TextDocument with Text = "..." } }
 
+            currentDoc <- Some (p.TextDocument.GetFilePath())
+
             match p.TextDocument.LanguageId with
-            | "tuc" -> do! p.TextDocument |> commands.ParseTucs domainTypes
+            | "tuc" ->
+                do! p.TextDocument |> commands.ParseTucs domainTypes
+                do! lspClient.NotifyTucFileParsed({ Content = p.TextDocument.GetFilePath() })
             | "fsharp" -> logInfo "F# language"
             | _ -> ()
         }
@@ -241,14 +250,19 @@ module Lsp =
             return success None
         }
 
-        override __.TextDocumentDidSave(p: DidSaveTextDocumentParams) = async {
+        override x.TextDocumentDidSave(p: DidSaveTextDocumentParams) = async {
             logInfo <| sprintf "TextDocumentDidSave %A" { p with Text = None }
 
             // todo - tady je zase jen Identifier na text doc, ktery ma jen URI, takze bud si nekde ukladat (pri open?) cache o souborech podle URI, kde bude vsechno a pak to vytahovat
             // nebo kouknout jeste, jestli to tam opravdu neni a jen to v F# neni naimplementovane
 
             match p.TextDocument.GetLanguageId() with
-            | Some "tuc" -> do! p.TextDocument.GetFilePath() |> commands.ParseTucsForFile domainTypes
+            | Some "tuc" ->
+                let path = p.TextDocument.GetFilePath()
+
+                do! path |> commands.ParseTucsForFile domainTypes
+                do! lspClient.NotifyTucFileParsed({ Content = path })
+
             | Some "fsharp" -> domainTypes <- commands.ResolveDomainTypes rootPath
             | _ -> ()
         }
@@ -262,11 +276,26 @@ module Lsp =
             logger.info (Log.setMessage "WorkspaceDidChangeWorkspaceFolders Request: {parms}" >> Log.addContextDestructured "parms" p )
         }
 
-        override __.TextDocumentCodeLens(p) = async {
+        (* override __.TextDocumentCodeLens(p) = async {
             logger.info (Log.setMessage "TextDocumentCodeLens Request: {parms}" >> Log.addContextDestructured "parms" p )
             // todo - show types in code lens for a method calls
+            let typ =
+                sprintf "// Domain Types: %d | Tuc Segments: %d"
+                    (domainTypes |> List.length)
+                    (p.TextDocument.GetFilePath() |> commands.SegmentsCount)
 
-            return success None
+            let cl = [|
+                {
+                    Command = Some { Title = typ; Command = None; Arguments = None }
+                    Data = None
+                    Range = {
+                        Start = { Line = 0; Character = 0 }
+                        End = { Line = 0; Character = typ.Length }
+                    }
+                }
+            |]
+
+            return success (Some cl)
         }
 
         override __.CodeLensResolve(cl) = async {
@@ -274,7 +303,13 @@ module Lsp =
             // todo - show types in code lens for a method calls
 
             return success cl
-        }
+        } *)
+
+        (* override __.TextDocumentCodeAction(c) = async {
+            logInfo <| sprintf "TextDocumentCodeAction %A" c
+
+            return success (Some <| TextDocumentCodeActionResult.CodeActions [||])
+        } *)
 
         override x.TextDocumentCompletion(p: CompletionParams) =
             logger.info (Log.setMessage "TextDocumentCompletion Request: {context}" >> Log.addContextDestructured "context" p)
@@ -326,6 +361,22 @@ module Lsp =
 
         override __.CompletionItemResolve(ci) = AsyncLspResult.success ci
 
+        member __.Info(p: PlainNotification) = async {
+            logger.info (Log.setMessage "Tuc.Info - {params}" >> Log.addContextDestructured "params" p)
+
+            let info =
+                [
+                    "Domain Types", domainTypes |> List.length |> string
+                    "Segments", commands.SegmentsCount p.Content |> string
+                ]
+                |> List.map (fun (k, v) -> sprintf "%s: %s" k v)
+                |> String.concat " | "
+
+            logInfo info
+
+            return success { Content = info }
+        }
+
     let startCore consoleOutput (commands : Commands) =
         use input = Console.OpenStandardInput()
         use output = Console.OpenStandardOutput()
@@ -353,6 +404,7 @@ module Lsp =
             //|> Map.add "fsharp/pipelineHint" (requestHandling (fun s p -> s.FSharpPipelineHints(p) ))
             //|> Map.add "fake/listTargets" (requestHandling (fun s p -> s.FakeTargets(p) ))
             //|> Map.add "fake/runtimePath" (requestHandling (fun s p -> s.FakeRuntimePath(p) ))
+            |> Map.add "tuc/info" (requestHandling (fun s p -> s.Info(p) ))
 
 
 
