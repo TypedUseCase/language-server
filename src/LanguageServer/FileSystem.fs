@@ -10,6 +10,7 @@ type VolatileFile = {
     Version: int option
     Lines: string []
     Segments: TucSegments
+    ParsedTucs: Tuc.ParsedTuc list
 }
 
 open System.IO

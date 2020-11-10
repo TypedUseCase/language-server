@@ -19,6 +19,17 @@ module TucHelpers =
 
     type TucSegments = ConcurrentDictionary<LineNumber, TucSegment list>
 
+    let private addToLocationEnd addition (location: ParsedLocation): ParsedLocation =
+        { location with
+            Location =
+                { location.Location with
+                    Range =
+                        { location.Location.Range with
+                            End = { location.Location.Range.End with Character = location.Location.Range.End.Character + addition }
+                        }
+                }
+        }
+
     [<RequireQualifiedAccess>]
     module TucSegment =
         let create location = {
@@ -66,20 +77,37 @@ module TucHelpers =
                 ]
             | Parsed.MethodCall m as p ->
                 [
-                    yield { create m.ServiceLocation with Hover = p |> Hover.forParticipantActivation }
+                    yield {
+                        create m.ServiceLocation with
+                            Hover = p |> Hover.forParticipantActivation
+                            CompletionItem = p |> Completion.forParticipantActivation m.ServiceLocation.Location.Range.End
+                        }
                     yield { create m.MethodLocation with Hover = p |> Hover.forMethod }
                     yield! m.Execution |> List.collect collectParts
                 ]
             | Parsed.HandleEvent h as p ->
                 [
                     yield { create h.StreamLocation with Hover = p |> Hover.forParticipantActivation }  // todo - tady se pro stream i servisu vypise to same (aktivace participanta), asi by to mohlo byt lepsi
-                    yield { create h.ServiceLocation with Hover = p |> Hover.forParticipantActivation }
+                    yield {
+                        create h.ServiceLocation with
+                            Hover = p |> Hover.forParticipantActivation
+                            CompletionItem = p |> Completion.forParticipantActivation h.ServiceLocation.Location.Range.End
+                    }
                     yield { create h.MethodLocation with Hover = p |> Hover.forMethod }
                     yield! h.Execution |> List.collect collectParts
                 ]
             | Parsed.PostData pd as p ->
                 [
-                    yield! pd.DataLocation |> List.mapi (fun current d -> { create d with Hover = p |> Hover.forData current })
+                    yield! pd.DataLocation
+                        |> List.mapi (fun current d ->
+                            let d = d |> addToLocationEnd ".".Length    // the . in the end is for a completion to work correctly
+
+                            { create d with
+                                Hover = p |> Hover.forData current
+                                CompletionItem = p |> Completion.forData current d.Location.Range.End
+                            }
+                        )
+
                     yield { create pd.OperatorLocation with Hover = p |> Hover.forOperator }
                     yield { create pd.DataObjectLocation with Hover = p |> Hover.forParticipantActivation }
                 ]
@@ -87,7 +115,15 @@ module TucHelpers =
                 [
                     yield { create rd.DataObjectLocation with Hover = p |> Hover.forParticipantActivation }
                     yield { create rd.OperatorLocation with Hover = p |> Hover.forOperator }
-                    yield! rd.DataLocation |> List.mapi (fun current d -> { create d with Hover = p |> Hover.forData current })
+                    yield! rd.DataLocation
+                        |> List.mapi (fun current d ->
+                            let d = d |> addToLocationEnd ".".Length    // the . in the end is for a completion to work correctly
+
+                            { create d with
+                                Hover = p |> Hover.forData current
+                                CompletionItem = p |> Completion.forData current d.Location.Range.End
+                            }
+                        )
                 ]
             | _ -> []
 

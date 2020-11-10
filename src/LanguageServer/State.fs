@@ -68,7 +68,7 @@ type State =
     member x.SetLastCheckedVersion (file: SourceFilePath) (version: int) =
         x.LastCheckedVersion.[file] <- version
 
-    member x.AddFileText(file: SourceFilePath, lines: LineStr [], segments, version) =
+    member x.AddFileText(file: SourceFilePath, lines: LineStr [], segments, parsedTucs, version) =
         let file = Path.normalize file
 
         x.Files.[file] <- {
@@ -76,6 +76,7 @@ type State =
             Version = version
             Lines = lines
             Segments = segments
+            ParsedTucs = parsedTucs
         }
 
         x.LogInfo <| sprintf "File %A cached - lines: %A | segments: %A." file lines.Length segments.Count
@@ -100,7 +101,7 @@ type State =
 
             file
             |> File.ReadAllLines
-            |> tee (fun lines -> x.AddFileText(file, lines, TucSegments(), None))
+            |> tee (fun lines -> x.AddFileText(file, lines, TucSegments(), [], None))
             |> ResultOrString.Ok
 
         | Some (volFile) -> ResultOrString.Ok(volFile.Lines)
@@ -132,6 +133,13 @@ type State =
         | _ ->
             log "Err: File not parsed."
             ResultOrString.Error(sprintf "File '%s' is not parsed." file)
+
+    member x.GetParsedTucs(file): _ =
+        file
+        |> Path.normalize
+        |> x.Files.TryFind
+        |> Option.map (fun volFile -> volFile.ParsedTucs)
+        |> Option.defaultValue []
 
     member x.CountSegments(file): int =
         match x.Files.TryFind file with

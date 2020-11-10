@@ -40,6 +40,7 @@
 
     <!-- Tuc -->
     <Compile Include="src/LanguageServer/Hover.fs" />
+    <Compile Include="src/LanguageServer/Completion.fs" />
     <Compile Include="src/LanguageServer/TucHelpers.fs" />
 
     <!-- Specific utils -->

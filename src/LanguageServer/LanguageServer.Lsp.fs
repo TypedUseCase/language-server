@@ -327,9 +327,9 @@ module Lsp =
                 p |> x.positionHandler emptyResult (fun p pos segment -> async {
                     let trigger =
                         match p.Context with
-                        | Some { triggerCharacter = (Some ".") } -> "by: ."
-                        | Some { triggerCharacter = (Some t) } -> sprintf "by: %s" t
-                        | _ -> "by ctrl+space"
+                        | Some { triggerCharacter = (Some ".") } -> CompletionTrigger.Dot
+                        | Some { triggerCharacter = (Some t) } -> CompletionTrigger.Other t
+                        | _ -> CompletionTrigger.CtrlSpace
 
                     logger.info (
                         Log.setMessage "TextDocumentCompletion: Position {position} | Segment {segment} | Trigger {trigger}"
@@ -338,28 +338,30 @@ module Lsp =
                         >> Log.addContextDestructured "trigger" trigger
                     )
 
-                    (* [|
-                        {
-                            CompletionItem.Create("CI item") with
-                                Kind = Some CompletionItemKind.Class
-                                InsertText = Some "Insert text"
-                                SortText = Some (sprintf "%06d" 0)
-                                FilterText = Some "CI item"
-                                // Label = ""
-                        }
-                    |] *)
-
                     let ci =
                         {
                             IsIncomplete = false;
-                            Items = segment |> Option.map (TucSegment.completionItem) |> Option.defaultValue [||]
+                            Items =
+                                segment
+                                |> Option.map (TucSegment.completionItem)
+                                |> Option.defaultValue (trigger |> commands.FindDefaultCompletionItems (p.GetFilePath(), pos))
                         }
 
                     return success (Some ci)
                 })
             | _ -> success emptyResult |> Async.retn
 
-        override __.CompletionItemResolve(ci) = AsyncLspResult.success ci
+        override __.CompletionItemResolve(ci) = async {
+            let ci =
+                match ci with
+                | { Data = Some data } ->
+                    let docs = data.ToObject<string>()
+
+                    { ci with Documentation = Some (Documentation.Markup (markdown docs)) }
+                | _ -> ci
+
+            return success ci
+        }
 
         member __.Info(p: PlainNotification) = async {
             logger.info (Log.setMessage "Tuc.Info - {params}" >> Log.addContextDestructured "params" p)
