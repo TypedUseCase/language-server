@@ -282,7 +282,7 @@ NUGET
       FSharp.Core (>= 4.7.2)
       FSharp.Data (>= 3.3.3)
       MF.ConsoleApplication (>= 2.0)
-    Tuc.Parser (2.0.1)
+    Tuc.Parser (3.0)
       FSharp.Core (>= 4.7.2)
       FSharp.Data (>= 3.3.3)
       MF.ConsoleApplication (>= 2.0)

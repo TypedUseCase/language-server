@@ -28,11 +28,11 @@
   </ItemGroup>
 
   <!-- For local development -->
-  <ItemGroup>
+  <!-- <ItemGroup>
     <ProjectReference Include="../tuc/tuc-parser/TucParser.fsproj">
       <Name>TucParser.fsproj</Name>
     </ProjectReference>
-  </ItemGroup>
+  </ItemGroup> -->
 
   <ItemGroup>
     <Compile Include="src/LanguageServer/Utils.fs" />

@@ -1,7 +1,7 @@
 FSharp.Core
 MF.ConsoleApplication
 Tuc.DomainResolver
-#Tuc.Parser
+Tuc.Parser
 
 Serilog
 Serilog.Sinks.File
