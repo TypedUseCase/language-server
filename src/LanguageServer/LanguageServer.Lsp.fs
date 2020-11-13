@@ -218,6 +218,10 @@ module Lsp =
             return ()
         }
 
+        override x.TextDocumentDidClose(p: DidCloseTextDocumentParams) =
+            logInfo <| sprintf "TextDocumentDidClose %A" p
+            p.TextDocument.GetFilePath() |> commands.ClearFileCache
+
         override x.TextDocumentHover(p: TextDocumentPositionParams) =
             logInfo <| sprintf "TextDocumentHover %A" p.TextDocument
             let emptyResult = Some { Contents = MarkedStrings [||]; Range = None }

@@ -161,3 +161,9 @@ type State =
             then ResultOrString.Error "Position is out of range"
             else Ok(lines, lines.[pos.Line - 1])
  *)
+    member x.ClearFile(file) = async {
+        file
+        |> Path.normalize
+        |> x.Files.TryRemove
+        |> ignore
+    }

@@ -22,6 +22,7 @@ type Commands = {
     TryGetLineSegment: DocumentUri * Tuc.Position -> ResultOrString<TucSegment option>
     SegmentsCount: DocumentUri -> int
     FindDefaultCompletionItems: DocumentUri * Tuc.Position -> CompletionTrigger -> CompletionItem []
+    ClearFileCache: DocumentUri -> Async<unit>
 }
 
 [<RequireQualifiedAccess>]
@@ -90,4 +91,6 @@ module Commands =
                 )
                 |> Option.defaultValue []
                 |> List.toArray
+
+        ClearFileCache = state.ClearFile
     }
