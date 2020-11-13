@@ -241,7 +241,7 @@ let zipRelease releaseDir =
 Target.create "Release" (fun _ ->
     let releaseDir = Path.getFullName "./dist"
 
-    !! "**/*.*proj"
+    !! "./*.fsproj"
     -- "example/**/*.*proj"
     -- "paket-files/**/*.*proj"
     -- "tests/**/*.*proj"
