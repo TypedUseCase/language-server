@@ -167,6 +167,7 @@ Target.create "AssemblyInfo" (fun _ ->
 
     !! "**/*.fsproj"
     -- "example/**/*.*proj"
+    -- "paket-files/**/*.*proj"
     |> Seq.map getProjectDetails
     |> Seq.iter (fun (_, _, folderName, attributes) ->
         AssemblyInfoFile.createFSharp (folderName </> "AssemblyInfo.fs") attributes
@@ -176,6 +177,7 @@ Target.create "AssemblyInfo" (fun _ ->
 Target.create "Build" (fun _ ->
     !! "**/*.fsproj"
     -- "example/**/*.*proj"
+    -- "paket-files/**/*.*proj"
     |> Seq.iter (DotNet.build id)
 )
 
@@ -197,6 +199,7 @@ Target.create "Lint" <| skipOn "no-lint" (fun _ ->
 
     !! "**/*.*proj"
     -- "example/**/*.*proj"
+    -- "paket-files/**/*.*proj"
     |> Seq.map (fun fsproj ->
         match toolsDir with
         | Global ->
@@ -240,6 +243,7 @@ Target.create "Release" (fun _ ->
 
     !! "**/*.*proj"
     -- "example/**/*.*proj"
+    -- "paket-files/**/*.*proj"
     -- "tests/**/*.*proj"
     |> Seq.collect (fun project -> runtimeIds |> List.collect (fun runtimeId -> [project, runtimeId]))
     |> Seq.iter (fun (project, runtimeId) ->

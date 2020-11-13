@@ -5,7 +5,12 @@
     <OutputType>Exe</OutputType>
     <TargetFramework>netcoreapp3.1</TargetFramework>
     <PackageId>Tuc.LanguageServer</PackageId>
+    <Description>Language server for a Tuc extension.</Description>
     <Version>0.0.0</Version>
+    <PackageProjectUrl>https://github.com/TypedUseCase/language-server</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/TypedUseCase/language-server.git</RepositoryUrl>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <PackageTags>typed-use-case;tuc;tuc-language;language-server;language-server-protocol;lsp</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>
@@ -13,15 +18,48 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Include="src/Utils.fs" />
+    <ProjectReference Include="src/ErrorHandling/ErrorHandling.fsproj" />
+    <!--
+    <ProjectReference Include="..\FsAutoComplete.Core\FsAutoComplete.Core.fsproj" />
+    <ProjectReference Include="src/LanguageServer.BackgroundServices/LanguageServer.BackgroundServices.fsproj" />
+    -->
+    <ProjectReference Include="src/LanguageServer.Logging/LanguageServer.Logging.fsproj" />
+    <ProjectReference Include="src/LanguageServerProtocol/LanguageServerProtocol.fsproj" />
+  </ItemGroup>
 
-    <!-- Internal libraries -->
-    <Compile Include="src/ErrorHandling/Result.fs" />
-    <Compile Include="src/ErrorHandling/Option.fs" />
+  <!-- For local development -->
+  <!-- <ItemGroup>
+    <ProjectReference Include="../tuc/tuc-parser/TucParser.fsproj">
+      <Name>TucParser.fsproj</Name>
+    </ProjectReference>
+  </ItemGroup> -->
+
+  <ItemGroup>
+    <Compile Include="src/LanguageServer/Utils.fs" />
+    <Compile Include="src/LanguageServer/LspHelpers.fs" />
+
+    <!-- Tuc -->
+    <Compile Include="src/LanguageServer/Hover.fs" />
+    <Compile Include="src/LanguageServer/Completion.fs" />
+    <Compile Include="src/LanguageServer/Diagnostics.fs" />
+    <Compile Include="src/LanguageServer/TucHelpers.fs" />
+
+    <!-- Specific utils -->
+    <Compile Include="src/LanguageServer/FileSystem.fs" />
+    <Compile Include="src/LanguageServer/Console.fs" />
+
+    <!-- LSP -->
+    <Compile Include="src/LanguageServer/State.fs" />
+    <Compile Include="src/LanguageServer/Commands.fs" />
+    <Compile Include="src/LanguageServer/LanguageServer.Lsp.fs" />
+
+    <!-- commands -->
+    <Compile Include="src/LanguageServer/Command/Common.fs" />
+    <Compile Include="src/LanguageServer/Command/LanguageServer.fs" />
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Include="src/Program.fs" />
+    <Compile Include="src/LanguageServer/Program.fs" />
   </ItemGroup>
 
   <Import Project=".paket\Paket.Restore.targets" />
