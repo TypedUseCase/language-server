@@ -18,7 +18,7 @@ module LanguageServer =
 
         let private start (logger: ILog) output commands =
             let result = Tuc.LanguageServer.Lsp.start output commands
-            logger.info (Log.setMessage <| sprintf "[Tuc.LS] Start with %A" result)
+            logger.info (Log.setMessage <| sprintf "[TUC.LS] Start with %A" result)
 
         let private resolveDomainTypes (logger: ILog) (input, output) path =
             logger.info (Log.setMessage "Resolve domain types")
@@ -57,21 +57,22 @@ module LanguageServer =
                     |> sprintf "File %s parsed into %A tucs" file
                     |> logInfo
 
-                    return lines, parsed
+                    return lines, Ok parsed
                 | Error e ->
                     e
                     |> sprintf "File %s NOT parsed due to:\n%A" file
                     |> Log.setMessage
                     |> logger.error
 
-                    return lines, []
+                    return lines, Error e
             with e ->
                 e
                 |> sprintf "File %s NOT parsed due to exception:\n%A" file
                 |> Log.setMessage
                 |> logger.error
+                // todo - add a parse error for exception?
 
-                return [||], []
+                return [||], Ok []
         }
 
         let private parseTucsFromFile (logger: ILog) (input, output) domainTypes (file: string) = async {
@@ -88,13 +89,13 @@ module LanguageServer =
         }
 
         let execute (logger: ILog): ExecuteCommand = fun (input, output) ->
-            output.Title "[Tuc.LS] Start"
+            output.Title "[TUC.LS] Start"
             logger.info (Log.setMessage "Start")
 
             Commands.create
-                (resolveDomainTypes logger (input, output))    // todo - pass a new logger and move a function to somewhere else
-                (parseTucs logger (input, output))             // todo - pass a new logger and move a function to somewhere else
-                (parseTucsFromFile logger (input, output))     // todo - pass a new logger and move a function to somewhere else
+                (resolveDomainTypes (LogProvider.getLoggerByName "TUC.LS.ResolveDomain") (input, output))
+                (parseTucs (LogProvider.getLoggerByName "TUC.LS.ParseTuc") (input, output))
+                (parseTucsFromFile (LogProvider.getLoggerByName "TUC.LS.ParseTuc") (input, output))
             |> start logger output
 
             logger.info (Log.setMessage <| sprintf "Started at %A" System.DateTime.Now)

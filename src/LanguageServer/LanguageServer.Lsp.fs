@@ -73,8 +73,6 @@ module Lsp =
 
         let mutable domainTypes: DomainType list = []   // todo - move to state?
 
-        let mutable currentDoc: string option = None
-
         /// centralize any state changes when the config is updated here
         let updateConfig (newConfig: FSharpConfig) =
             let toCompilerToolArgument (path: string) = sprintf "--compilertool:%s" path
@@ -83,6 +81,15 @@ module Lsp =
         //TODO: Thread safe version
         // let fixes = System.Collections.Generic.Dictionary<DocumentUri, (LanguageServerProtocol.Types.Range * TextEdit) list>()
         // let analyzerFixes = System.Collections.Generic.Dictionary<(DocumentUri * string), (LanguageServerProtocol.Types.Range * TextEdit) list>()
+
+        let sendDiagnostics diagnostics (uri: DocumentUri) =
+            logger.info (Log.setMessage "SendDiag for {file}: {diags} entries" >> Log.addContextDestructured "file" uri >> Log.addContextDestructured "diags" (diagnostics |> Seq.length) )
+            diagnostics
+            |> Seq.iter (fun d -> logger.info (Log.setMessage " - {detail}" >> Log.addContextDestructured "detail" d))
+
+            { Uri = uri; Diagnostics = diagnostics }
+            |> lspClient.TextDocumentPublishDiagnostics
+            |> Async.Start
 
         let logInfo message =
             logger.info (Log.setMessage message)
@@ -191,11 +198,11 @@ module Lsp =
         override __.TextDocumentDidOpen(p: DidOpenTextDocumentParams) = async {
             logInfo <| sprintf "TextDocumentDidOpen %A" { p with TextDocument = { p.TextDocument with Text = "..." } }
 
-            currentDoc <- Some (p.TextDocument.GetFilePath())
-
             match p.TextDocument.LanguageId with
             | "tuc" ->
-                do! p.TextDocument |> commands.ParseTucs domainTypes
+                let! diagnostics = p.TextDocument |> commands.ParseTucs domainTypes
+                p.TextDocument.GetFilePath() |> sendDiagnostics diagnostics
+
                 do! lspClient.NotifyTucFileParsed({ Content = p.TextDocument.GetFilePath() })
             | "fsharp" -> logInfo "F# language"
             | _ -> ()
@@ -207,7 +214,7 @@ module Lsp =
             // todo - zmenit cache aktualniho souboru pri zmene, bude to trochu tezsi, protoze je tady jen verzovany dokument a ten funguje jinak...
             (* match p.TextDocument.LanguageId with
             | "tuc" ->
-                let parsedTucs = p.TextDocument |> commands.ParseTucs domainTypes
+                let! diagnostics = p.TextDocument |> commands.ParseTucs domainTypes
                 // todo - cache parsed tucs for a file
 
                 ()
@@ -264,7 +271,9 @@ module Lsp =
             | Some "tuc" ->
                 let path = p.TextDocument.GetFilePath()
 
-                do! path |> commands.ParseTucsForFile domainTypes
+                let! diagnostics = path |> commands.ParseTucsForFile domainTypes
+                p.TextDocument.GetFilePath() |> sendDiagnostics diagnostics
+
                 do! lspClient.NotifyTucFileParsed({ Content = path })
 
             | Some "fsharp" -> domainTypes <- commands.ResolveDomainTypes rootPath

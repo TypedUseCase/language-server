@@ -16,11 +16,15 @@ type CompletionTrigger =
 
 type Commands = {
     ResolveDomainTypes: string option -> DomainType list    // todo - return Result<DomainType list, DomainParseError>
-    ParseTucs: DomainType list -> TextDocumentItem -> Async<unit>    // todo return Async<Result<ParsedTuc list, ParseError>>
-    ParseTucsForFile: DomainType list -> DocumentUri -> Async<unit>    // todo return Async<Result<ParsedTuc list, ParseError>>
+
+    ParseTucs: DomainType list -> TextDocumentItem -> Async<Diagnostic[]>
+    ParseTucsForFile: DomainType list -> DocumentUri -> Async<Diagnostic[]>
+
     TryGetFileCheckerOptionsWithLines: DocumentUri -> ResultOrString<LineStr []>
     TryGetLineSegment: DocumentUri * Tuc.Position -> ResultOrString<TucSegment option>
+
     SegmentsCount: DocumentUri -> int
+
     FindDefaultCompletionItems: DocumentUri * Tuc.Position -> CompletionTrigger -> CompletionItem []
     ClearFileCache: DocumentUri -> Async<unit>
 }
@@ -48,19 +52,43 @@ module Commands =
         ParseTucs = fun domainTypes doc -> async {
             let! lines, parsedTucs = doc |> parseTucsDoc domainTypes
 
-            let segments = parsedTucs |> TucSegment.collect
-            logger.info (Log.setMessage (sprintf "Parsed segments [%A]" segments.Count))
+            match parsedTucs with
+            | Ok parsedTucs ->
+                let segments = parsedTucs |> TucSegment.collect
+                logger.info (Log.setMessage (sprintf "Parsed segments [%A]" segments.Count))
 
-            state.AddFileText(doc.GetFilePath(), lines, segments, parsedTucs, None)
+                state.AddFileText(doc.GetFilePath(), lines, segments, parsedTucs, None)
+
+                return [||]
+
+            | Error errors ->
+                doc.GetFilePath() |> state.ClearFile |> Async.Start
+
+                return
+                    errors
+                    |> List.map Diagnostics.forParseError
+                    |> List.toArray
         }
 
         ParseTucsForFile = fun domainTypes file -> async {
             let! lines, parsedTucs = file |> parseTucsFile domainTypes
 
-            let segments = parsedTucs |> TucSegment.collect
-            logger.info (Log.setMessage (sprintf "Parsed segments [%A]" segments.Count))
+            match parsedTucs with
+            | Ok parsedTucs ->
+                let segments = parsedTucs |> TucSegment.collect
+                logger.info (Log.setMessage (sprintf "Parsed segments [%A]" segments.Count))
 
-            state.AddFileText(file, lines, segments, parsedTucs, None)
+                state.AddFileText(file, lines, segments, parsedTucs, None)
+
+                return [||]
+
+            | Error errors ->
+                file |> state.ClearFile |> Async.Start
+
+                return
+                    errors
+                    |> List.map Diagnostics.forParseError
+                    |> List.toArray
         }
 
         TryGetFileCheckerOptionsWithLines = Path.getFullPathSafe >> state.TryGetFileLines
