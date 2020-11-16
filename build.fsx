@@ -175,7 +175,7 @@ Target.create "AssemblyInfo" (fun _ ->
 )
 
 Target.create "Build" (fun _ ->
-    !! "**/*.fsproj"
+    !! "./*.fsproj"
     -- "example/**/*.*proj"
     -- "paket-files/**/*.*proj"
     |> Seq.iter (DotNet.build id)
