@@ -46,8 +46,9 @@
     <Compile Include="src/LanguageServer/Helper/FileSystem.fs" />
     <Compile Include="src/LanguageServer/Helper/Console.fs" />
 
-    <!-- Tuc.Domain -->
+    <!-- Tuc -->
     <Compile Include="src/LanguageServer/Domain/Resolve.fs" />
+    <Compile Include="src/LanguageServer/Tuc/Parse.fs" />
 
     <!-- LSP -->
     <Compile Include="src/LanguageServer/State.fs" />
