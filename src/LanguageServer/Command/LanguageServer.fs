@@ -20,28 +20,6 @@ module LanguageServer =
             let result = Tuc.LanguageServer.Lsp.start output commands
             logger.info (Log.setMessage <| sprintf "[TUC.LS] Start with %A" result)
 
-        let private resolveDomainTypes (logger: ILog) (input, output) path =
-            logger.info (Log.setMessage "Resolve domain types")
-
-            try
-                path
-                |> FileOrDir.parse ".fsx"
-                |> tee (FileOrDir.debug output "Domain")
-                |> checkDomain (input, output)
-                |> function
-                    | Ok domainTypes -> domainTypes
-                    | Error error ->
-                        logger.error (Log.setMessage <| sprintf "Resolve domain types with error: %A" error)
-                        []
-                |> tee (fun dt -> logger.info (Log.setMessage <| sprintf "Resolved domain types [%d]" (dt |> List.length)))
-            with e ->
-                e
-                |> sprintf "Path %A NOT resolved due to exception:\n%A" path
-                |> Log.setMessage
-                |> logger.error
-
-                []
-
         open LspHelpers
 
         let private parseTucsFromFileLines (logger: ILog) (input, output) domainTypes file lines = async {
@@ -93,7 +71,7 @@ module LanguageServer =
             logger.info (Log.setMessage "Start")
 
             Commands.create
-                (resolveDomainTypes (LogProvider.getLoggerByName "TUC.LS.ResolveDomain") (input, output))
+                (Domain.resolveDomanTypesAndWatch (LogProvider.getLoggerByName "TUC.LS.ResolveDomain") (input, output))
                 (parseTucs (LogProvider.getLoggerByName "TUC.LS.ParseTuc") (input, output))
                 (parseTucsFromFile (LogProvider.getLoggerByName "TUC.LS.ParseTuc") (input, output))
             |> start logger output

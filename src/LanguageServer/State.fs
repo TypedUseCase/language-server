@@ -8,13 +8,16 @@ open System.Threading
 open FSharp.Compiler.Range
 open FsLibLog
 open TucHelpers
+open Tuc.Domain
 
 type DeclName = string
 type CompletionNamespaceInsert = string * int * int * string
 
 type State =
-    {
+    private {
         Logger: ILog
+
+        mutable DomainTypes: DomainType list
 
         Files: ConcurrentDictionary<SourceFilePath, VolatileFile>
         LastCheckedVersion: ConcurrentDictionary<SourceFilePath, int>
@@ -32,6 +35,8 @@ type State =
         {
             Logger = logger
 
+            DomainTypes = []
+
             Files = ConcurrentDictionary()
             LastCheckedVersion = ConcurrentDictionary()
             // HelpText = ConcurrentDictionary()
@@ -47,6 +52,9 @@ type State =
 
     member private x.LogInfo(message) =
         x.Logger.info (Log.setMessage message)
+
+    member x.SetDomainTypes(domainTypes) =
+        x.DomainTypes <- domainTypes
 
     member x.TryGetFileVersion(file: SourceFilePath): int option =
         let file = Path.normalize file
@@ -145,6 +153,11 @@ type State =
         match x.Files.TryFind file with
         | Some volFile -> volFile.Segments.Count
         | _ -> -1
+
+    member x.GetDomainTypes () = x.DomainTypes
+
+    member x.CountDomainTypes(): int =
+        x.DomainTypes |> List.length
 
     (* member x.TryGetFileLinesAndLineStr(file: SourceFilePath, pos: pos): ResultOrString<LineStr [] * LineStr> =
         let file = Path.normalize file

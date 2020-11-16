@@ -15,7 +15,10 @@ type CompletionTrigger =
     | CtrlSpace
 
 type Commands = {
-    ResolveDomainTypes: string option -> DomainType list    // todo - return Result<DomainType list, DomainParseError>
+    StartResolvingDomainTypes: (int -> Async<unit>) -> string option -> unit
+
+    GetDomainTypes: unit -> DomainType list
+    CountDomainTypes: unit -> int
 
     ParseTucs: DomainType list -> TextDocumentItem -> Async<Diagnostic[]>
     ParseTucsForFile: DomainType list -> DocumentUri -> Async<Diagnostic[]>
@@ -34,20 +37,26 @@ module Commands =
     let logger = LogProvider.getLoggerByName "State"
     let private state = State.Initial logger
 
+    let mutable private isResolving = false
+
     type private PartialRange = {
         Start: Tuc.Position
         End: Tuc.Position option
     }
 
     let create resolveDomainTypes parseTucsDoc parseTucsFile = {
-        // todo resolve domain types better
-        (*
-            - async task, ktery bude bezet "porad" a bude watchovat domenove soubory v rootu a drzet si stav domenovych typu ve `state`
-            - tady teda bude funkce na nastartovani toho tasku a zvenku jen dostane funkci, ktera bude resolvovat, tak jak ted
-            - pak tady bude metoda, ktera bude ty domenove typy vracet ze statu, pripadne pak vracet diagnosticke chyby
-         *)
+        StartResolvingDomainTypes = fun notify root ->
+            if isResolving then ()
+            else
+                root
+                |> resolveDomainTypes (
+                    tee (List.length >> notify >> Async.Start)
+                    >> state.SetDomainTypes
+                )
+                |> Async.Start
 
-        ResolveDomainTypes = resolveDomainTypes
+        GetDomainTypes = state.GetDomainTypes
+        CountDomainTypes = state.CountDomainTypes
 
         ParseTucs = fun domainTypes doc -> async {
             let! lines, parsedTucs = doc |> parseTucsDoc domainTypes
