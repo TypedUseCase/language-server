@@ -36,24 +36,26 @@
 
   <ItemGroup>
     <Compile Include="src/LanguageServer/Utils.fs" />
-    <Compile Include="src/LanguageServer/LspHelpers.fs" />
+
+    <!-- Helpers -->
+    <Compile Include="src/LanguageServer/Helper/LspHelpers.fs" />
+    <Compile Include="src/LanguageServer/Helper/Hover.fs" />
+    <Compile Include="src/LanguageServer/Helper/Completion.fs" />
+    <Compile Include="src/LanguageServer/Helper/Diagnostics.fs" />
+    <Compile Include="src/LanguageServer/Helper/TucHelpers.fs" />
+    <Compile Include="src/LanguageServer/Helper/FileSystem.fs" />
+    <Compile Include="src/LanguageServer/Helper/Console.fs" />
 
     <!-- Tuc -->
-    <Compile Include="src/LanguageServer/Hover.fs" />
-    <Compile Include="src/LanguageServer/Completion.fs" />
-    <Compile Include="src/LanguageServer/Diagnostics.fs" />
-    <Compile Include="src/LanguageServer/TucHelpers.fs" />
-
-    <!-- Specific utils -->
-    <Compile Include="src/LanguageServer/FileSystem.fs" />
-    <Compile Include="src/LanguageServer/Console.fs" />
+    <Compile Include="src/LanguageServer/Domain/Resolve.fs" />
+    <Compile Include="src/LanguageServer/Tuc/Parse.fs" />
 
     <!-- LSP -->
     <Compile Include="src/LanguageServer/State.fs" />
     <Compile Include="src/LanguageServer/Commands.fs" />
     <Compile Include="src/LanguageServer/LanguageServer.Lsp.fs" />
 
-    <!-- commands -->
+    <!-- Console Commands -->
     <Compile Include="src/LanguageServer/Command/Common.fs" />
     <Compile Include="src/LanguageServer/Command/LanguageServer.fs" />
   </ItemGroup>

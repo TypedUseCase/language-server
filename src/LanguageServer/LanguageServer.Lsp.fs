@@ -51,6 +51,9 @@ module Lsp =
         member __.NotifyFileParsed (p: PlainNotification) =
             sendServerRequest "fsharp/fileParsed" (box p) |> Async.Ignore
 
+        member __.NotifyDomainResolved (p: PlainNotification) =
+            sendServerRequest "tuc/domainResolved" (box p) |> Async.Ignore
+
         member __.NotifyTucFileParsed (p: PlainNotification) =
             sendServerRequest "tuc/fileParsed" (box p) |> Async.Ignore
 
@@ -70,8 +73,6 @@ module Lsp =
 
         let mutable config = FSharpConfig.Default
         let mutable rootPath : string option = None
-
-        let mutable domainTypes: DomainType list = []   // todo - move to state?
 
         /// centralize any state changes when the config is updated here
         let updateConfig (newConfig: FSharpConfig) =
@@ -111,7 +112,10 @@ module Lsp =
             //glyphToCompletionKind <- glyphToCompletionKindGenerator clientCapabilities
             //glyphToSymbolKind <- glyphToSymbolKindGenerator clientCapabilities
 
-            domainTypes <- commands.ResolveDomainTypes actualRootPath
+            rootPath
+            |> commands.StartResolvingDomainTypes (fun domainTypesCount ->
+                lspClient.NotifyDomainResolved({ Content = sprintf "Domain Types Resolved [%d]" domainTypesCount})
+            )
 
             return
                 { InitializeResult.Default with
@@ -125,7 +129,7 @@ module Lsp =
                             // ReferencesProvider = Some true
                             // DocumentHighlightProvider = Some true
                             // DocumentSymbolProvider = Some true
-                            WorkspaceSymbolProvider = Some true
+                            // WorkspaceSymbolProvider = Some true
                             // DocumentFormattingProvider = Some true
                             // DocumentRangeFormattingProvider = Some false
                             // SignatureHelpProvider = Some {
@@ -155,7 +159,7 @@ module Lsp =
         }
 
         override __.Initialized(p: InitializedParams) = async {
-            logInfo <| sprintf "Initialized with %A Domain Types." (domainTypes |> List.length)
+            logInfo <| sprintf "Initialized with %A Domain Types." (commands.CountDomainTypes())
 
             return ()
         }
@@ -167,27 +171,24 @@ module Lsp =
                 let pos = arg.GetTucPosition()
                 logger.info (Log.setMessage "PositionHandler - Position request: {file} at {pos}" >> Log.addContextDestructured "file" file >> Log.addContextDestructured "pos" pos)
 
-                match arg.GetLanguageId() with
-                | Some "tuc" ->
-                    return!
-                        match commands.TryGetLineSegment(file, pos) with
-                        | ResultOrString.Error s ->
-                            logger.error (Log.setMessage "PositionHandler - Getting file for {file} failed due to {error}" >> Log.addContextDestructured "error" s >> Log.addContextDestructured "file" file)
-                            AsyncLspResult.internalError s
-                        | ResultOrString.Ok (segment) ->
-                            try
-                                async {
-                                    let! r = Async.Catch (f arg pos segment)
-                                    match r with
-                                    | Choice1Of2 r -> return r
-                                    | Choice2Of2 e ->
-                                        logger.error (Log.setMessage "PositionHandler - Failed during child operation on file {file}" >> Log.addContextDestructured "file" file >> Log.addExn e)
-                                        return LspResult.internalError e.Message
-                                }
-                            with e ->
-                                logger.error (Log.setMessage "PositionHandler - Operation failed for file {file}" >> Log.addContextDestructured "file" file >> Log.addExn e)
-                                AsyncLspResult.internalError e.Message
-                | _ -> return success empty
+                return!
+                    match commands.TryGetLineSegment(file, pos) with
+                    | ResultOrString.Error s ->
+                        logger.error (Log.setMessage "PositionHandler - Getting file for {file} failed due to {error}" >> Log.addContextDestructured "error" s >> Log.addContextDestructured "file" file)
+                        AsyncLspResult.internalError s
+                    | ResultOrString.Ok (segment) ->
+                        try
+                            async {
+                                let! r = Async.Catch (f arg pos segment)
+                                match r with
+                                | Choice1Of2 r -> return r
+                                | Choice2Of2 e ->
+                                    logger.error (Log.setMessage "PositionHandler - Failed during child operation on file {file}" >> Log.addContextDestructured "file" file >> Log.addExn e)
+                                    return LspResult.internalError e.Message
+                            }
+                        with e ->
+                            logger.error (Log.setMessage "PositionHandler - Operation failed for file {file}" >> Log.addContextDestructured "file" file >> Log.addExn e)
+                            AsyncLspResult.internalError e.Message
             }
 
         // todo<tuc> - handle when tuc will be generated by extension
@@ -198,29 +199,22 @@ module Lsp =
         override __.TextDocumentDidOpen(p: DidOpenTextDocumentParams) = async {
             logInfo <| sprintf "TextDocumentDidOpen %A" { p with TextDocument = { p.TextDocument with Text = "..." } }
 
-            match p.TextDocument.LanguageId with
-            | "tuc" ->
-                let! diagnostics = p.TextDocument |> commands.ParseTucs domainTypes
-                p.TextDocument.GetFilePath() |> sendDiagnostics diagnostics
+            let! diagnostics = p.TextDocument |> commands.ParseTucs (commands.GetDomainTypes())
+            p.TextDocument.GetFilePath() |> sendDiagnostics diagnostics
 
-                do! lspClient.NotifyTucFileParsed({ Content = p.TextDocument.GetFilePath() })
-            | "fsharp" -> logInfo "F# language"
-            | _ -> ()
+            do! lspClient.NotifyTucFileParsed({ Content = p.TextDocument.GetFilePath() })
         }
 
         override __.TextDocumentDidChange(p: DidChangeTextDocumentParams) = async {
             logInfo <| sprintf "TextDocumentDidChange %A" p.TextDocument
 
             // todo - zmenit cache aktualniho souboru pri zmene, bude to trochu tezsi, protoze je tady jen verzovany dokument a ten funguje jinak...
-            (* match p.TextDocument.LanguageId with
-            | "tuc" ->
-                let! diagnostics = p.TextDocument |> commands.ParseTucs domainTypes
-                // todo - cache parsed tucs for a file
+            (*
+            let! diagnostics = p.TextDocument |> commands.ParseTucs domainTypes
+            // todo - cache parsed tucs for a file
 
-                ()
-
-            | "fsharp" -> logInfo "F# language"
-            | _ -> () *)
+            ()
+            *)
 
             return ()
         }
@@ -233,19 +227,16 @@ module Lsp =
             logInfo <| sprintf "TextDocumentHover %A" p.TextDocument
             let emptyResult = Some { Contents = MarkedStrings [||]; Range = None }
 
-            match p.GetLanguageId() with
-            | Some "tuc" ->
-                p |> x.positionHandler emptyResult (fun p pos segment ->
-                    async {
-                        logger.info (Log.setMessage "Hover at {position}" >> Log.addContextDestructured "position" pos )
+            p |> x.positionHandler emptyResult (fun p pos segment ->
+                async {
+                    logger.info (Log.setMessage "Hover at {position}" >> Log.addContextDestructured "position" pos )
 
-                        return
-                            match segment with
-                            | Some { Hover = Some hover } -> success (Some hover)
-                            | _ -> success emptyResult   // todo - for an empty respons: success None, it returns with an LSP error
-                    }
-                )
-            | _ -> success emptyResult |> Async.retn
+                    return
+                        match segment with
+                        | Some { Hover = Some hover } -> success (Some hover)
+                        | _ -> success emptyResult   // todo - for an empty respons: success None, it returns with an LSP error
+                }
+            )
 
         override __.TextDocumentDefinition(p: TextDocumentPositionParams) = async {
             // todo - uncomment some server capabilities? - this is for go to definition
@@ -267,27 +258,21 @@ module Lsp =
             // todo - tady je zase jen Identifier na text doc, ktery ma jen URI, takze bud si nekde ukladat (pri open?) cache o souborech podle URI, kde bude vsechno a pak to vytahovat
             // nebo kouknout jeste, jestli to tam opravdu neni a jen to v F# neni naimplementovane
 
-            match p.TextDocument.GetLanguageId() with
-            | Some "tuc" ->
-                let path = p.TextDocument.GetFilePath()
+            let path = p.TextDocument.GetFilePath()
 
-                let! diagnostics = path |> commands.ParseTucsForFile domainTypes
-                p.TextDocument.GetFilePath() |> sendDiagnostics diagnostics
+            let! diagnostics = path |> commands.ParseTucsForFile (commands.GetDomainTypes())
+            p.TextDocument.GetFilePath() |> sendDiagnostics diagnostics
 
-                do! lspClient.NotifyTucFileParsed({ Content = path })
-
-            | Some "fsharp" -> domainTypes <- commands.ResolveDomainTypes rootPath
-            | _ -> ()
+            do! lspClient.NotifyTucFileParsed({ Content = path })
         }
 
-        override __.WorkspaceDidChangeWatchedFiles(p) = async {
+        (* override __.WorkspaceDidChangeWatchedFiles(p) = async {
             logger.info (Log.setMessage "WorkspaceDidChangeWatchedFiles Request: {parms}" >> Log.addContextDestructured "parms" p )
-            domainTypes <- commands.ResolveDomainTypes rootPath
-        }
+        } *)
 
-        override __.WorkspaceDidChangeWorkspaceFolders(p) = async {
+        (* override __.WorkspaceDidChangeWorkspaceFolders(p) = async {
             logger.info (Log.setMessage "WorkspaceDidChangeWorkspaceFolders Request: {parms}" >> Log.addContextDestructured "parms" p )
-        }
+        } *)
 
         (* override __.TextDocumentCodeLens(p) = async {
             logger.info (Log.setMessage "TextDocumentCodeLens Request: {parms}" >> Log.addContextDestructured "parms" p )
@@ -335,34 +320,31 @@ module Lsp =
             // - poresit taky verze souboru, cekani, ...
             // - jinak muzou byt rovnou tak jako Hover = Hover option, i CompletionItems = CompletionItem list, ktere bude "predpripravene" a rovnou ve statu
 
-            match p.GetLanguageId() with
-            | Some "tuc" ->
-                p |> x.positionHandler emptyResult (fun p pos segment -> async {
-                    let trigger =
-                        match p.Context with
-                        | Some { triggerCharacter = (Some ".") } -> CompletionTrigger.Dot
-                        | Some { triggerCharacter = (Some t) } -> CompletionTrigger.Other t
-                        | _ -> CompletionTrigger.CtrlSpace
+            p |> x.positionHandler emptyResult (fun p pos segment -> async {
+                let trigger =
+                    match p.Context with
+                    | Some { triggerCharacter = (Some ".") } -> CompletionTrigger.Dot
+                    | Some { triggerCharacter = (Some t) } -> CompletionTrigger.Other t
+                    | _ -> CompletionTrigger.CtrlSpace
 
-                    logger.info (
-                        Log.setMessage "TextDocumentCompletion: Position {position} | Segment {segment} | Trigger {trigger}"
-                        >> Log.addContextDestructured "position" pos
-                        >> Log.addContextDestructured "segment" segment
-                        >> Log.addContextDestructured "trigger" trigger
-                    )
+                logger.info (
+                    Log.setMessage "TextDocumentCompletion: Position {position} | Segment {segment} | Trigger {trigger}"
+                    >> Log.addContextDestructured "position" pos
+                    >> Log.addContextDestructured "segment" segment
+                    >> Log.addContextDestructured "trigger" trigger
+                )
 
-                    let ci =
-                        {
-                            IsIncomplete = false;
-                            Items =
-                                segment
-                                |> Option.map (TucSegment.completionItem)
-                                |> Option.defaultValue (trigger |> commands.FindDefaultCompletionItems (p.GetFilePath(), pos))
-                        }
+                let ci =
+                    {
+                        IsIncomplete = false;
+                        Items =
+                            segment
+                            |> Option.map (TucSegment.completionItem)
+                            |> Option.defaultValue (trigger |> commands.FindDefaultCompletionItems (p.GetFilePath(), pos))
+                    }
 
-                    return success (Some ci)
-                })
-            | _ -> success emptyResult |> Async.retn
+                return success (Some ci)
+            })
 
         override __.CompletionItemResolve(ci) = async {
             let ci =
@@ -381,8 +363,10 @@ module Lsp =
 
             let info =
                 [
-                    "Domain Types", domainTypes |> List.length |> string
-                    "Segments", commands.SegmentsCount p.Content |> string
+                    yield "Domain Types", commands.CountDomainTypes() |> string
+
+                    if p.Content |> String.IsNullOrEmpty |> not then
+                        yield "Segments", commands.SegmentsCount p.Content |> string
                 ]
                 |> List.map (fun (k, v) -> sprintf "%s: %s" k v)
                 |> String.concat " | "
