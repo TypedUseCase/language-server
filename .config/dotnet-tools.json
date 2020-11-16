@@ -9,9 +9,15 @@
             ]
         },
         "paket": {
-            "version": "6.0.0-alpha050",
+            "version": "6.0.0-alpha054",
             "commands": [
                 "paket"
+            ]
+        },
+        "dotnet-fsharplint": {
+            "version": "0.16.5",
+            "commands": [
+                "dotnet-fsharplint"
             ]
         }
     }
