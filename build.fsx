@@ -16,7 +16,7 @@ type ToolDir =
     | Local of string
 
 // ========================================================================================================
-// === F# / Console Application fake build ======================================================== 1.3.0 =
+// === F# / Console Application fake build ======================================================== 1.3.1 =
 // --------------------------------------------------------------------------------------------------------
 // Options:
 //  - no-clean   - disables clean of dirs in the first step (required on CI)
@@ -182,7 +182,8 @@ Target.create "Build" (fun _ ->
 )
 
 Target.create "Lint" <| skipOn "no-lint" (fun _ ->
-    DotnetCore.installOrUpdateTool toolsDir "dotnet-fsharplint"
+    let version = " --version 0.16.5"    // todo - remove when .net5.0 is used
+    DotnetCore.installOrUpdateTool toolsDir ("dotnet-fsharplint" + version)
 
     let checkResult (messages: string list) =
         let rec check: string list -> unit = function
