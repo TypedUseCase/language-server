@@ -1,11 +1,11 @@
-framework: netcoreapp3.1
+framework: net5.0
 storage: none
 
 source https://api.nuget.org/v3/index.json
-nuget FSharp.Core ~> 4.7
+nuget FSharp.Core ~> 5
 nuget MF.ConsoleApplication ~> 2.0
-nuget Tuc.DomainResolver ~> 1.0
-nuget Tuc.Parser ~> 3.0
+nuget Tuc.DomainResolver ~> 2.0
+nuget Tuc.Parser ~> 4.0
 
 github TheAngryByrd/FsLibLog:f81cba440bf0476bb4e2262b57a067a0d6ab78a7 src/FsLibLog/FsLibLog.fs
 

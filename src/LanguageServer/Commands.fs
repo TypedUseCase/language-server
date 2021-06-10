@@ -11,7 +11,7 @@ open TucHelpers
 [<RequireQualifiedAccess>]
 type CompletionTrigger =
     | Dot
-    | Other of string
+    | Other of char
     | CtrlSpace
 
 type Commands = {

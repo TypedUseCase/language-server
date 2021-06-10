@@ -2,10 +2,8 @@
 
 open System
 open System.IO
-open FSharp.Compiler.SourceCodeServices
 open System.Collections.Concurrent
 open System.Threading
-open FSharp.Compiler.Range
 open FsLibLog
 open TucHelpers
 open Tuc.Domain

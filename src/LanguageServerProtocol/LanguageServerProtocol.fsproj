@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>netcoreapp3.1</TargetFramework>
+    <TargetFramework>net5.0</TargetFramework>
   </PropertyGroup>
 
   <ItemGroup>
@@ -10,6 +10,10 @@
 
   <ItemGroup>
     <Compile Include="LanguageServerProtocol.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../LanguageServer.Logging/LanguageServer.Logging.fsproj" />
   </ItemGroup>
 
   <Import Project="..\..\.paket\Paket.Restore.targets" />
