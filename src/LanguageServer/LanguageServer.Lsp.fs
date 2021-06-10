@@ -21,41 +21,42 @@ module Lsp =
     open System.IO
     open ErrorHandling
 
-    module FcsRange = FSharp.Compiler.Range
+    module FcsRange = FSharp.Compiler.Text.Range
+    type FcsRange = FSharp.Compiler.Text.Range
 
     //open FSharp.Analyzers
 
-    type TucLspClient(sendServerRequest: ClientNotificationSender) =
+    type TucLspClient(sendServerNotification: ClientNotificationSender, sendServerRequest: ClientRequestSender) =
         inherit LspClient ()
 
         override __.WindowShowMessage(p) =
-            sendServerRequest "window/showMessage" (box p) |> Async.Ignore
+            sendServerNotification "window/showMessage" (box p) |> Async.Ignore
 
         override __.WindowLogMessage(p) =
-            sendServerRequest "window/logMessage" (box p) |> Async.Ignore
+            sendServerNotification "window/logMessage" (box p) |> Async.Ignore
 
         override __.TextDocumentPublishDiagnostics(p) =
-            sendServerRequest "textDocument/publishDiagnostics" (box p) |> Async.Ignore
+            sendServerNotification "textDocument/publishDiagnostics" (box p) |> Async.Ignore
 
         ///Custom notification for workspace/solution/project loading events
         member __.NotifyWorkspace (p: PlainNotification) =
-            sendServerRequest "fsharp/notifyWorkspace" (box p) |> Async.Ignore
+            sendServerNotification "fsharp/notifyWorkspace" (box p) |> Async.Ignore
 
         ///Custom notification for initial workspace peek
         member __.NotifyWorkspacePeek (p: PlainNotification) =
-            sendServerRequest "fsharp/notifyWorkspacePeek" (box p) |> Async.Ignore
+            sendServerNotification "fsharp/notifyWorkspacePeek" (box p) |> Async.Ignore
 
         member __.NotifyCancelledRequest (p: PlainNotification) =
-            sendServerRequest "fsharp/notifyCancel" (box p) |> Async.Ignore
+            sendServerNotification "fsharp/notifyCancel" (box p) |> Async.Ignore
 
         member __.NotifyFileParsed (p: PlainNotification) =
-            sendServerRequest "fsharp/fileParsed" (box p) |> Async.Ignore
+            sendServerNotification "fsharp/fileParsed" (box p) |> Async.Ignore
 
         member __.NotifyDomainResolved (p: PlainNotification) =
-            sendServerRequest "tuc/domainResolved" (box p) |> Async.Ignore
+            sendServerNotification "tuc/domainResolved" (box p) |> Async.Ignore
 
         member __.NotifyTucFileParsed (p: PlainNotification) =
-            sendServerRequest "tuc/fileParsed" (box p) |> Async.Ignore
+            sendServerNotification "tuc/fileParsed" (box p) |> Async.Ignore
 
         // TODO: Add the missing notifications
         // TODO: Implement requests
@@ -138,7 +139,8 @@ module Lsp =
                             CompletionProvider =
                                 Some {
                                     ResolveProvider = Some true
-                                    TriggerCharacters = Some ([| "."; |])
+                                    TriggerCharacters = Some ([| '.'; |])
+                                    AllCommitCharacters = None //TODO: what chars shoudl commit completions?
                                 }
                             // CodeLensProvider = Some {
                             //     CodeLensOptions.ResolveProvider = Some true
@@ -323,7 +325,7 @@ module Lsp =
             p |> x.positionHandler emptyResult (fun p pos segment -> async {
                 let trigger =
                     match p.Context with
-                    | Some { triggerCharacter = (Some ".") } -> CompletionTrigger.Dot
+                    | Some { triggerCharacter = (Some '.') } -> CompletionTrigger.Dot
                     | Some { triggerCharacter = (Some t) } -> CompletionTrigger.Other t
                     | _ -> CompletionTrigger.CtrlSpace
 
@@ -376,6 +378,8 @@ module Lsp =
             return success { Content = info }
         }
 
+        override x.Dispose () = ()
+
     let startCore consoleOutput (commands : Commands) =
         use input = Console.OpenStandardInput()
         use output = Console.OpenStandardOutput()
@@ -407,7 +411,7 @@ module Lsp =
 
 
 
-        LanguageServerProtocol.Server.start requestsHandlings input output TucLspClient (fun lspClient -> TucLspServer(consoleOutput, commands, lspClient))
+        LanguageServerProtocol.Server.start requestsHandlings input output TucLspClient (fun lspClient -> new TucLspServer(consoleOutput, commands, lspClient))
 
     let start output (commands : Commands) =
         let logger = LogProvider.getLoggerByName "Startup"

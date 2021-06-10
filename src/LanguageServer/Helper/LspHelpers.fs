@@ -57,16 +57,19 @@ module LspHelpers =
                 | _ -> None
 
         let fcsSeverityToDiagnostic = function
-            | FSharpErrorSeverity.Error -> DiagnosticSeverity.Error
-            | FSharpErrorSeverity.Warning -> DiagnosticSeverity.Warning
+            | FSharpDiagnosticSeverity.Error -> Some DiagnosticSeverity.Error
+            | FSharpDiagnosticSeverity.Warning -> Some DiagnosticSeverity.Warning
+            | FSharpDiagnosticSeverity.Hidden -> None
+            | FSharpDiagnosticSeverity.Info -> Some DiagnosticSeverity.Information
 
-        let fcsErrorToDiagnostic (error: FSharpErrorInfo) =
+        let fcsErrorToDiagnostic (error: FSharpDiagnostic) =
             {
-                Range = {
-                    Start = { Line = error.StartLineAlternate - 1; Character = error.StartColumn }
-                    End = { Line = error.EndLineAlternate - 1; Character = error.EndColumn }
-                }
-                Severity = Some (fcsSeverityToDiagnostic error.Severity)
+                Range =
+                    {
+                        Start = { Line = error.StartLineAlternate - 1; Character = error.StartColumn }
+                        End = { Line = error.EndLineAlternate - 1; Character = error.EndColumn }
+                    }
+                Severity = fcsSeverityToDiagnostic error.Severity
                 Source = "F# Compiler"
                 Message = error.Message
                 Code = Some (string error.ErrorNumber)
@@ -240,6 +243,10 @@ module LspHelpers =
         FSICompilerToolLocations: string [] option
         TooltipMode : string option
         GenerateBinlog: bool option
+        AbstractClassStubGeneration: bool option
+        AbstractClassStubGenerationObjectIdentifier: string option
+        AbstractClassStubGenerationMethodBody: string option
+
     }
 
     type FSharpConfigRequest = {
@@ -258,6 +265,9 @@ module LspHelpers =
         UnionCaseStubGenerationBody: string
         RecordStubGeneration: bool
         RecordStubGenerationBody: string
+        AbstractClassStubGeneration: bool
+        AbstractClassStubGenerationObjectIdentifier: string
+        AbstractClassStubGenerationMethodBody: string
         InterfaceStubGeneration: bool
         InterfaceStubGenerationObjectIdentifier: string
         InterfaceStubGenerationMethodBody: string
@@ -288,9 +298,12 @@ module LspHelpers =
                 Linter = false
                 LinterConfig = None
                 UnionCaseStubGeneration = false
-                UnionCaseStubGenerationBody = "failwith \"Not Implemented\""
+                UnionCaseStubGenerationBody = """failwith "Not Implemented" """
                 RecordStubGeneration = false
                 RecordStubGenerationBody = "failwith \"Not Implemented\""
+                AbstractClassStubGeneration = true
+                AbstractClassStubGenerationObjectIdentifier = "this"
+                AbstractClassStubGenerationMethodBody = "failwith \"Not Implemented\""
                 InterfaceStubGeneration = false
                 InterfaceStubGenerationObjectIdentifier = "this"
                 InterfaceStubGenerationMethodBody = "failwith \"Not Implemented\""
@@ -314,7 +327,7 @@ module LspHelpers =
                 GenerateBinlog = false
             }
 
-        static member FromDto(dto: FSharpConfigDto) =
+        static member FromDto(dto: FSharpConfigDto): FSharpConfig =
             {
                 AutomaticWorkspaceInit = defaultArg dto.AutomaticWorkspaceInit false
                 WorkspaceModePeekDeepLevel = defaultArg dto.WorkspaceModePeekDeepLevel 2
@@ -351,6 +364,9 @@ module LspHelpers =
                 FSICompilerToolLocations = defaultArg dto.FSICompilerToolLocations FSharpConfig.Default.FSICompilerToolLocations
                 TooltipMode = defaultArg dto.TooltipMode "full"
                 GenerateBinlog = defaultArg dto.GenerateBinlog false
+                AbstractClassStubGeneration = defaultArg dto.AbstractClassStubGeneration false
+                AbstractClassStubGenerationObjectIdentifier = defaultArg dto.AbstractClassStubGenerationObjectIdentifier "this"
+                AbstractClassStubGenerationMethodBody = defaultArg dto.AbstractClassStubGenerationMethodBody "failwith \Not Implemented\""
             }
 
         /// called when a configuration change takes effect, so None-valued members here should revert options
@@ -358,6 +374,9 @@ module LspHelpers =
         member x.AddDto(dto: FSharpConfigDto) =
             {
                 AutomaticWorkspaceInit = defaultArg dto.AutomaticWorkspaceInit x.AutomaticWorkspaceInit
+                AbstractClassStubGeneration = defaultArg dto.AbstractClassStubGeneration x.AbstractClassStubGeneration
+                AbstractClassStubGenerationObjectIdentifier = defaultArg dto.AbstractClassStubGenerationObjectIdentifier x.AbstractClassStubGenerationObjectIdentifier
+                AbstractClassStubGenerationMethodBody = defaultArg dto.AbstractClassStubGenerationMethodBody x.AbstractClassStubGenerationMethodBody
                 WorkspaceModePeekDeepLevel = defaultArg dto.WorkspaceModePeekDeepLevel x.WorkspaceModePeekDeepLevel
                 ExcludeProjectDirectories = defaultArg dto.ExcludeProjectDirectories x.ExcludeProjectDirectories
                 KeywordsAutocomplete = defaultArg dto.KeywordsAutocomplete x.KeywordsAutocomplete
