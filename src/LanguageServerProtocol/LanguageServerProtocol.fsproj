@@ -12,5 +12,9 @@
     <Compile Include="LanguageServerProtocol.fs" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="../LanguageServer.Logging/LanguageServer.Logging.fsproj" />
+  </ItemGroup>
+
   <Import Project="..\..\.paket\Paket.Restore.targets" />
 </Project>

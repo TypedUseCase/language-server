@@ -1,5 +1,16 @@
 module LanguageServerProtocol
 
+// ========================================================================================
+// Copy of the file from https://github.com/fsharp/FsAutoComplete project, currently 0.45.4
+//
+// Just a function `ignoreNotification` is changed so it has a context
+// Use this to "fix" all the occuerences:
+// - Find:    default __\.(.*?)\(_\) = ignoreNotification\n
+// - Replace: default __.$1(_) = ignoreNotification "$1"\n
+//
+// Another thing is usage of `FsLibLog` instead of `FsAutoComplete.Logging`
+// ========================================================================================
+
 open System.Diagnostics
 
 
@@ -8,7 +19,6 @@ module LspJsonConverters =
     open Microsoft.FSharp.Reflection
     open Newtonsoft.Json
     open System
-    open System.Collections.Generic
     open System.Collections.Concurrent
 
     let inline memorise (f: 'a -> 'b) : ('a -> 'b) =
@@ -18,6 +28,9 @@ module LspJsonConverters =
 
     type ErasedUnionAttribute() =
         inherit Attribute()
+
+    [<ErasedUnion>]
+    type U2<'a, 'b> = First of 'a | Second of 'b
 
     type ErasedUnionConverter() =
         inherit JsonConverter()
@@ -38,6 +51,69 @@ module LspJsonConverters =
 
         override __.ReadJson(_reader, _t, _existingValue, _serializer) =
             failwith "Not implemented"
+
+    /// converter that can convert enum-style DUs
+    type SingleCaseUnionConverter() =
+      inherit JsonConverter()
+
+
+      let canConvert =
+        let allCases (t: System.Type) =
+          FSharpType.GetUnionCases t
+        memorise (fun t ->
+          FSharpType.IsUnion t
+          && allCases t |> Array.forall (fun c -> c.GetFields().Length = 0)
+        )
+
+      override _.CanConvert t = canConvert t
+
+      override _.WriteJson(writer: Newtonsoft.Json.JsonWriter, value: obj, serializer: Newtonsoft.Json.JsonSerializer) =
+        serializer.Serialize(writer, string value)
+
+      override _.ReadJson(reader: Newtonsoft.Json.JsonReader, t, _existingValue, serializer) =
+        let caseName = string reader.Value
+        match FSharpType.GetUnionCases(t) |> Array.tryFind (fun c -> c.Name.Equals(caseName, StringComparison.OrdinalIgnoreCase)) with
+        | Some caseInfo ->
+          FSharpValue.MakeUnion(caseInfo, [||])
+        | None ->
+          failwith $"Could not create an instance of the type '%s{t.Name}' with the name '%s{caseName}'"
+
+    type U2BoolObjectConverter() =
+      inherit JsonConverter()
+
+      let canConvert =
+        memorise (fun (t: System.Type) ->
+          t.IsGenericType
+          && t.GetGenericTypeDefinition() = typedefof<U2<_, _>>
+          && t.GetGenericArguments().Length = 2
+          && t.GetGenericArguments().[0] = typeof<bool>
+          && not (t.GetGenericArguments().[1].IsValueType)
+        )
+
+      override _.CanConvert t = canConvert t
+
+      override _.WriteJson(writer, value, serializer) =
+        let case, fields = FSharpValue.GetUnionFields(value, value.GetType())
+        match case.Name with
+        | "First" ->
+          writer.WriteValue(value :?> bool)
+        | "Second" ->
+          serializer.Serialize(writer, fields.[0])
+        | _ ->
+          failwith $"Unrecognized case '{case.Name}' for union type '{value.GetType().FullName}'."
+
+      override _.ReadJson(reader, t, _existingValue, serializer) =
+        let cases = FSharpType.GetUnionCases(t)
+        match reader.TokenType with
+        | JsonToken.Boolean ->
+          // 'First' side
+          FSharpValue.MakeUnion(cases.[0], [| box(reader.Value :?> bool) |])
+        | JsonToken.StartObject ->
+          // Second side
+          let value = serializer.Deserialize(reader, (t.GetGenericArguments().[1]))
+          FSharpValue.MakeUnion(cases.[1], [| value |])
+        | _ ->
+          failwithf $"Unrecognized json TokenType '%s{string reader.TokenType}' when reading value of type '{t.FullName}'"
 
     type OptionConverter() =
         inherit JsonConverter()
@@ -66,7 +142,6 @@ module LspJsonConverters =
 module Types =
     open Newtonsoft.Json
     open Newtonsoft.Json.Linq
-    open Newtonsoft.Json.Converters
     open System
 
     type TextDocumentSyncKind =
@@ -89,18 +164,23 @@ module Types =
 
     /// Position in a text document expressed as zero-based line and zero-based character offset.
     /// A position is between two characters like an ‘insert’ cursor in a editor.
-    type Position = {
-        /// Line position in a document (zero-based).
-        Line: int
+    [<DebuggerDisplay("{DebuggerDisplay}")>]
+    type Position =
+      {
+          /// Line position in a document (zero-based).
+          Line: int
 
-        /// Character offset on a line in a document (zero-based). Assuming that the line is
-        /// represented as a string, the `character` value represents the gap between the
-        /// `character` and `character + 1`.
-        ///
-        /// If the character value is greater than the line length it defaults back to the
-        /// line length.
-        Character: int
-    }
+          /// Character offset on a line in a document (zero-based). Assuming that the line is
+          /// represented as a string, the `character` value represents the gap between the
+          /// `character` and `character + 1`.
+          ///
+          /// If the character value is greater than the line length it defaults back to the
+          /// line length.
+          Character: int
+      }
+      [<DebuggerBrowsable(DebuggerBrowsableState.Never)>]
+      member x.DebuggerDisplay =
+        $"({x.Line},{x.Character})"
 
     /// A range in a text document expressed as (zero-based) start and end positions.
     /// A range is comparable to a selection in an editor. Therefore the end position is exclusive.
@@ -114,13 +194,18 @@ module Types =
     ///     End = { Line = 6; character = 0 }
     /// }
     /// ```
-    type Range = {
-        /// The range's start position.
-        Start: Position
+    [<DebuggerDisplay("{DebuggerDisplay}")>]
+    type Range =
+      {
+          /// The range's start position.
+          Start: Position
 
-        /// The range's end position.
-        End: Position
-    }
+          /// The range's end position.
+          End: Position
+      }
+      [<DebuggerBrowsable(DebuggerBrowsableState.Never)>]
+      member x.DebuggerDisplay =
+        $"{x.Start.DebuggerDisplay}-{x.End.DebuggerDisplay}"
 
     type DocumentUri = string
 
@@ -226,7 +311,7 @@ module Types =
     /// Describes textual changes on a single text document. The text document is referred to as a
     /// `VersionedTextDocumentIdentifier` to allow clients to check the text document version before an edit is
     /// applied. A `TextDocumentEdit` describes all changes on a version Si and after they are applied move the
-    /// document to version Si+1. So the creator of a `TextDocumentEdit `doesn’t need to sort the array or do any
+    /// document to version Si+1. So the creator of a `TextDocumentEdit `doesn't need to sort the array or do any
     /// kind of ordering. However the edits must be non overlapping.
     type TextDocumentEdit = {
         /// The text document to change.
@@ -297,6 +382,17 @@ module Types =
         SymbolKind: SymbolKindCapabilities option
     }
 
+    type SemanticTokensWorkspaceClientCapabilities = {
+      /// Whether the client implementation supports a refresh request sent from
+      /// the server to the client.
+      ///
+      /// Note that this event is global and will force the client to refresh all
+      /// semantic tokens currently shown. It should be used with absolute care
+      /// and is useful for situation where a server for example detect a project
+      /// wide change that requires such a calculation.
+      RefreshSupport: bool option
+    }
+
     /// Workspace specific client capabilities.
     type WorkspaceClientCapabilities = {
         /// The client supports applying batch edits to the workspace by supporting
@@ -314,6 +410,8 @@ module Types =
 
         /// Capabilities specific to the `workspace/symbol` request.
         Symbol: SymbolCapabilities option
+
+        SemanticTokens: SemanticTokensWorkspaceClientCapabilities option
     }
 
     type SynchronizationCapabilities = {
@@ -457,7 +555,7 @@ module Types =
         SignatureInformation: SignatureInformationCapabilities option
     }
 
-    /// apabilities specific to the `textDocument/documentSymbol`
+    /// capabilities specific to the `textDocument/documentSymbol`
     type DocumentSymbolCapabilities = {
         /// Whether document symbol supports dynamic registration.
         DynamicRegistration: bool option
@@ -503,6 +601,58 @@ module Types =
         LineFoldingOnly: bool option
     }
 
+    type SemanticTokenFullRequestType = {
+      /// The client will send the `textDocument/semanticTokens/full/delta`
+      /// request if the server provides a corresponding handler.
+      Delta: bool option
+    }
+
+    type SemanticTokensRequests = {
+        /// The client will send the `textDocument/semanticTokens/range` request
+        /// if the server provides a corresponding handler.
+        Range: U2<bool, obj> option
+
+        /// The client will send the `textDocument/semanticTokens/full` request
+        /// if the server provides a corresponding handler.
+        Full: U2<bool, SemanticTokenFullRequestType> option
+    }
+
+    type TokenFormat =
+    | Relative
+
+    type SemanticTokensClientCapabilities = {
+      /// Whether implementation supports dynamic registration. If this is set to
+      /// `true` the client supports the new `(TextDocumentRegistrationOptions &
+      /// StaticRegistrationOptions)` return value for the corresponding server
+      /// capability as well.
+      DynamicRegistration: bool option
+
+      /// Which requests the client supports and might send to the server
+      /// depending on the server's capability. Please note that clients might not
+      /// show semantic tokens or degrade some of the user experience if a range
+      /// or full request is advertised by the client but not provided by the
+      /// server. If for example the client capability `requests.full` and
+      /// `request.range` are both set to true but the server only provides a
+      /// range provider the client might not render a minimap correctly or might
+      /// even decide to not show any semantic tokens at all.
+      Requests: SemanticTokensRequests
+
+      /// The token types that the client supports.
+      TokenTypes: string[]
+
+      /// The token modifiers that the client supports.
+      TokenModifiers: string[]
+
+      /// The formats the clients supports.
+      Formats: TokenFormat[]
+
+      /// Whether the client supports tokens that can overlap each other.
+      OverlappingTokenSupport: bool option
+
+      /// Whether the client supports tokens that can span multiple lines.
+      MultilineTokenSupport: bool option
+    }
+
     /// Text document specific client capabilities.
     type TextDocumentClientCapabilities = {
         Synchronization: SynchronizationCapabilities option
@@ -525,7 +675,7 @@ module Types =
         /// Whether document highlight supports dynamic registration.
         DocumentHighlight: DynamicCapabilities option
 
-        /// apabilities specific to the `textDocument/documentSymbol`
+        /// Capabilities specific to the `textDocument/documentSymbol`
         DocumentSymbol: DocumentSymbolCapabilities option
 
         /// Capabilities specific to the `textDocument/formatting`
@@ -552,11 +702,15 @@ module Types =
         /// Capabilities specific to the `textDocument/rename`
         Rename: DynamicCapabilities option
 
-        /// capabilities for the `textDocument/foldingRange`
+        /// Capabilities for the `textDocument/foldingRange`
         FoldingRange: FoldingRangeCapabilities option
 
         /// Capabilities for the `textDocument/selectionRange`
         SelectionRange: DynamicCapabilities option
+
+        /// Capabilities specific to the various semantic token requests.
+        /// @since 3.16.0
+        SemanticTokens: SemanticTokensClientCapabilities option
     }
 
     type ClientCapabilities = {
@@ -588,13 +742,28 @@ module Types =
         ResolveProvider: bool option
 
         /// The characters that trigger completion automatically.
-        TriggerCharacters: string[] option
+        TriggerCharacters: char[] option
+
+        /// The list of all possible characters that commit a completion.
+        /// This field can be used if clients don't support individual commit
+        /// characters per completion item.
+        ///
+        /// See `ClientCapabilities.textDocument.completion.completionItem.commitCharactersSupport`.
+        ///
+        /// If a server provides both `allCommitCharacters` and commit characters
+        /// on an individual completion item, the ones on the completion item win.
+        AllCommitCharacters: char[] option
     }
 
     /// Signature help options.
     type SignatureHelpOptions = {
         /// The characters that trigger signature help automatically.
-        TriggerCharacters: string[] option
+        TriggerCharacters: char[] option
+        /// List of characters that re-trigger signature help.
+        ///
+        /// These trigger characters are only active when signature help is already showing.
+        /// All trigger characters are also counted as re-trigger characters.
+        RetriggerCharacters: char[] option
     }
 
     /// Code Lens options.
@@ -606,10 +775,10 @@ module Types =
     /// Format document on type options
     type DocumentOnTypeFormattingOptions = {
         /// A character on which formatting should be triggered, like `}`.
-        FirstTriggerCharacter: string
+        FirstTriggerCharacter: char
 
         /// More trigger characters.
-        MoreTriggerCharacter: string[] option
+        MoreTriggerCharacter: char[] option
     }
 
     /// Document link options
@@ -656,6 +825,29 @@ module Types =
                 WillSaveWaitUntil = None
                 Save = None
             }
+
+    type SemanticTokensLegend = {
+      /// The token types a server uses.
+      TokenTypes: string[]
+      /// The token modifiers a server uses.
+      TokenModifiers: string[]
+    }
+
+    type SemanticTokenFullOptions =
+      {
+        /// The server supports deltas for full documents.
+        Delta: bool option
+      }
+    type SemanticTokensOptions = {
+      /// The legend used by the server
+      Legend: SemanticTokensLegend
+
+      /// Server supports providing semantic tokens for a specific range of a document.
+      Range: U2<bool, obj> option
+
+      /// Server supports providing semantic tokens for a full document.
+      Full: U2<bool, SemanticTokenFullOptions> option
+    }
 
     type ServerCapabilities = {
         /// Defines how text documents are synced. Is either a detailed structure defining each notification or
@@ -724,6 +916,8 @@ module Types =
 
         SelectionRangeProvider: bool option
 
+        SemanticTokensProvider: SemanticTokensOptions option
+
     }
     with
         static member Default =
@@ -750,6 +944,7 @@ module Types =
                 Experimental = None
                 FoldingRangeProvider = None
                 SelectionRangeProvider = None
+                SemanticTokensProvider = None
             }
 
     type InitializeResult = {
@@ -989,17 +1184,16 @@ module Types =
     }
 
     /// Value-object describing what options formatting should use.
-    type FormattingOptions = {
+    type FormattingOptions() =
         /// Size of a tab in spaces.
-        TabSize: int
+        member val TabSize : int = 0 with get, set
 
         /// Prefer spaces over tabs.
-        InsertSpaces: bool
+        member val InsertSpaces: bool = false with get, set
 
         /// Further properties.
         [<JsonExtensionData>]
-        AdditionalData: System.Collections.Generic.IDictionary<string, JToken>
-    }
+        member val AdditionalData: System.Collections.Generic.IDictionary<string, JToken> = new System.Collections.Generic.Dictionary<_,_>() :> _ with get, set
 
     type DocumentFormattingParams = {
         /// The document to format.
@@ -1028,7 +1222,7 @@ module Types =
         Position: Position
 
         /// The character that has been typed.
-        Ch: string
+        Ch: char
 
         /// The format options.
         Options: FormattingOptions
@@ -1216,7 +1410,7 @@ module Types =
 
         /// The trigger character (a single character) that has trigger code complete.
         /// Is undefined if `triggerKind !== CompletionTriggerKind.TriggerCharacter`
-        triggerCharacter: string option
+        triggerCharacter: char option
     }
 
     type CompletionParams =
@@ -1236,7 +1430,7 @@ module Types =
             member this.Position with get() = this.Position
 
     /// Represents a reference to a command. Provides a title which will be used to represent a command in the UI.
-    /// Commands are identified by a string identifier. The protocol currently doesn’t specify a set of well-known
+    /// Commands are identified by a string identifier. The protocol currently doesn't specify a set of well-known
     /// commands. So executing a command requires some tool extension code.
     type Command = {
         /// Title of the command, like `save`.
@@ -1329,7 +1523,7 @@ module Types =
         /// An optional set of characters that when pressed while this completion is active will accept it first and
         /// then type that character. *Note* that all commit characters should have `length=1` and that superfluous
         /// characters will be ignored.
-        CommitCharacters: string[] option
+        CommitCharacters: char[] option
 
         /// An optional command that is executed *after* inserting this completion. *Note* that
         /// additional modifications to the current document should be described with the
@@ -1394,26 +1588,30 @@ module Types =
 
     /// Represents a diagnostic, such as a compiler error or warning. Diagnostic objects are only valid in the
     /// scope of a resource.
-    type Diagnostic = {
-        /// The range at which the message applies.
-        Range: Range
+    [<DebuggerDisplay("{DebuggerDisplay}")>]
+    type Diagnostic =
+      {
+          /// The range at which the message applies.
+          Range: Range
 
-        /// The diagnostic's severity. Can be omitted. If omitted it is up to the
-        /// client to interpret diagnostics as error, warning, info or hint.
-        Severity: DiagnosticSeverity option
+          /// The diagnostic's severity. Can be omitted. If omitted it is up to the
+          /// client to interpret diagnostics as error, warning, info or hint.
+          Severity: DiagnosticSeverity option
 
-        /// The diagnostic's code. Can be omitted.
-        Code: string option
+          /// The diagnostic's code. Can be omitted.
+          Code: string option
 
-        /// A human-readable string describing the source of this
-        /// diagnostic, e.g. 'typescript' or 'super lint'.
-        Source: string
+          /// A human-readable string describing the source of this
+          /// diagnostic, e.g. 'typescript' or 'super lint'.
+          Source: string
 
-        /// The diagnostic's message.
-        Message: string
-        RelatedInformation: DiagnosticRelatedInformation [] option
-        Tags: DiagnosticTag[] option
-    }
+          /// The diagnostic's message.
+          Message: string
+          RelatedInformation: DiagnosticRelatedInformation [] option
+          Tags: DiagnosticTag[] option
+      }
+      [<DebuggerBrowsable(DebuggerBrowsableState.Never)>]
+      member x.DebuggerDisplay = $"[{defaultArg x.Severity DiagnosticSeverity.Error}] ({x.Range.DebuggerDisplay}) {x.Message} ({defaultArg x.Code String.Empty})"
 
     type PublishDiagnosticsParams = {
         /// The URI for which diagnostic information is reported.
@@ -1665,6 +1863,40 @@ module Types =
         ActiveParameter: int option
     }
 
+    type SignatureHelpTriggerKind =
+    /// manually invoked via command
+    | Invoked = 1
+    /// trigger by a configured trigger character
+    | TriggerCharacter = 2
+    /// triggered by cursor movement or document content changing
+    | ContentChange = 3
+
+    type SignatureHelpContext =
+      {
+        /// action that caused signature help to be triggered
+        TriggerKind: SignatureHelpTriggerKind
+        /// character that caused signature help to be triggered. None when kind is not TriggerCharacter.
+        TriggerCharacter: char option
+        /// true if signature help was already showing when this was triggered
+        IsRetrigger: bool
+        /// the current active SignatureHelp
+        ActiveSignatureHelp: SignatureHelp option
+
+      }
+
+    type SignatureHelpParams =
+      {
+        /// the text document
+        TextDocument: TextDocumentIdentifier
+        /// the position inside the text document
+        Position: Position
+        /// Additional information about the context in which a signature help request was triggered.
+        Context: SignatureHelpContext option
+      }
+      interface ITextDocumentPositionParams with
+        member this.TextDocument with get () = this.TextDocument
+        member this.Position with get () = this.Position
+
     type FoldingRangeParams = {
         /// the document to generate ranges for
         TextDocument: TextDocumentIdentifier
@@ -1688,7 +1920,7 @@ module Types =
         /// The zero-based character offset before the folded range ends. If not defined, defaults to the length of the end line.
         EndCharacter: int option
 
-        /// Describes the kind of the folding range such as `comment' or 'region'. The kind
+        /// Describes the kind of the folding range such as 'comment' or 'region'. The kind
         /// is used to categorize folding ranges and used by commands like 'Fold all comments'. See
         /// [FoldingRangeKind](#FoldingRangeKind) for an enumeration of standardized kinds.
         Kind: string option
@@ -1708,6 +1940,50 @@ module Types =
 
         /// The parent selection range containing this range. Therefore `parent.range` must contain `this.range`.
         Parent: SelectionRange option
+    }
+
+    type SemanticTokensParams = {
+      TextDocument: TextDocumentIdentifier
+    }
+
+    type SemanticTokensDeltaParams = {
+      TextDocument: TextDocumentIdentifier
+      /// The result id of a previous response. The result Id can either point to
+      /// a full response or a delta response depending on what was received last.
+      PreviousResultId: string
+    }
+
+    type SemanticTokensRangeParams = {
+      TextDocument: TextDocumentIdentifier
+      Range: Range
+    }
+
+    type SemanticTokens = {
+      /// An optional result id. If provided and clients support delta updating
+      /// the client will include the result id in the next semantic token request.
+      /// A server can then instead of computing all semantic tokens again simply
+      /// send a delta.
+      ResultId: string option
+      Data: uint32[]
+    }
+
+    type SemanticTokensEdit = {
+      /// The start offset of the edit.
+      Start: uint32
+
+      /// The count of elements to remove.
+      DeleteCount: uint32
+
+      /// The elements to insert.
+      Data: uint32[] option
+    }
+
+    type SemanticTokensDelta = {
+      ResultId: string option
+
+      /// The semantic token edits to transform a previous result into a new
+      /// result.
+      Edits: SemanticTokensEdit[];
     }
 
 module LowLevel =
@@ -1789,18 +2065,43 @@ module JsonRpc =
     open Newtonsoft.Json
     open Newtonsoft.Json.Linq
 
-    type Request = {
+    type MessageTypeTest = {
         [<JsonProperty("jsonrpc")>] Version: string
         Id: int option
+        Method: string option
+    }
+    [<RequireQualifiedAccess>]
+    type MessageType =
+      | Notification
+      | Request
+      | Response
+      | Error
+
+    let getMessageType messageTest =
+      match messageTest with
+      | { Version = "2.0"; Id = Some _; Method = Some _; } -> MessageType.Request
+      | { Version = "2.0"; Id = Some _; Method = None; } -> MessageType.Response
+      | { Version = "2.0"; Id = None; Method = Some _; } -> MessageType.Notification
+      | _ -> MessageType.Error
+
+    type Request = {
+        [<JsonProperty("jsonrpc")>] Version: string
+        Id: int
         Method: string
         Params: JToken option
     }
     with
-        static member Create(id: int, method': string, rpcParams: JToken) =
-            { Version = "2.0"; Id = Some id; Method = method'; Params = Some rpcParams }
+        static member Create(id: int, method': string, rpcParams: JToken option) =
+            { Version = "2.0"; Id = id; Method = method'; Params = rpcParams }
 
-        static member Create(method': string, rpcParams: JToken) =
-            { Version = "2.0"; Id = None; Method = method'; Params = Some rpcParams }
+    type Notification = {
+        [<JsonProperty("jsonrpc")>] Version: string
+        Method: string
+        Params: JToken option
+    }
+    with
+        static member Create(method': string, rpcParams: JToken option) =
+            { Version = "2.0"; Method = method'; Params = rpcParams }
 
     module ErrorCodes =
         let parseError = -32700
@@ -1824,18 +2125,22 @@ module JsonRpc =
         static member MethodNotFound = Error.Create(ErrorCodes.methodNotFound, "Method not found")
         static member InvalidParams = Error.Create(ErrorCodes.invalidParams, "Invalid params")
         static member InternalError = Error.Create(ErrorCodes.internalError, "Internal error")
+        static member InternalErrorMessage message = Error.Create(ErrorCodes.internalError, message)
 
     type Response = {
         [<JsonProperty("jsonrpc")>] Version: string
         Id: int option
         Error: Error option
+        [<JsonProperty(NullValueHandling=NullValueHandling.Include)>]
         Result: JToken option
     }
     with
-        static member Success(id: int option, result: JToken option) =
-            { Version = "2.0"; Id = id; Result = result; Error = None }
-        static member Failure(id: int option, error: Error) =
-            { Version = "2.0"; Id = id; Result = None; Error = Some error }
+        /// Json.NET conditional property serialization, controlled by naming convention
+        member x.ShouldSerializeResult() = x.Error.IsNone
+        static member Success(id: int, result: JToken option) =
+            { Version = "2.0"; Id = Some id; Result = result; Error = None }
+        static member Failure(id: int, error: Error) =
+            { Version = "2.0"; Id = Some id; Result = None; Error = Some error }
 
 type LspResult<'t> = Result<'t, JsonRpc.Error>
 type AsyncLspResult<'t> = Async<LspResult<'t>>
@@ -1878,7 +2183,6 @@ let private ignoreNotification (from: string) =
     )
 
 open Types
-open System.Text
 open Newtonsoft.Json.Linq
 
 [<AbstractClass>]
@@ -1920,7 +2224,7 @@ type LspClient() =
     /// support, Atom’s project folder support or Sublime’s project support. If a client workspace consists of
     /// multiple roots then a server typically needs to know about this. The protocol up to know assumes one root
     /// folder which is announce to the server by the rootUri property of the InitializeParams.
-    /// If the client supports workspace folders and announces them via the corrsponding workspaceFolders client
+    /// If the client supports workspace folders and announces them via the corresponding workspaceFolders client
     /// capability the InitializeParams contain an additional property workspaceFolders with the configured
     /// workspace folders when the server starts.
     ///
@@ -1942,6 +2246,15 @@ type LspClient() =
     abstract member WorkspaceApplyEdit : ApplyWorkspaceEditParams -> AsyncLspResult<ApplyWorkspaceEditResponse>
     default __.WorkspaceApplyEdit(_) = notImplemented
 
+    /// The workspace/semanticTokens/refresh request is sent from the server to the client.
+    /// Servers can use it to ask clients to refresh the editors for which this server provides semantic tokens.
+    /// As a result the client should ask the server to recompute the semantic tokens for these editors.
+    /// This is useful if a server detects a project wide configuration change which requires a re-calculation
+    /// of all semantic tokens. Note that the client still has the freedom to delay the re-calculation of
+    /// the semantic tokens if for example an editor is currently not visible.
+    abstract member WorkspaceSemanticTokensRefresh: unit -> Async<unit>
+    default __.WorkspaceSemanticTokensRefresh() = ignoreNotification "WorkspaceSemanticTokensRefresh"
+
     /// Diagnostics notification are sent from the server to the client to signal results of validation runs.
     ///
     /// Diagnostics are “owned” by the server so it is the server’s responsibility to clear them if necessary.
@@ -1959,8 +2272,15 @@ type LspClient() =
     abstract member TextDocumentPublishDiagnostics: PublishDiagnosticsParams -> Async<unit>
     default __.TextDocumentPublishDiagnostics(_) = ignoreNotification "TextDocumentPublishDiagnostics"
 
+
+
 [<AbstractClass>]
 type LspServer() =
+    interface System.IDisposable with
+      member x.Dispose() = x.Dispose()
+
+    abstract member Dispose : unit -> unit
+
     /// The initialize request is sent as the first request from the client to the server.
     /// The initialize request may only be sent once.
     abstract member Initialize: InitializeParams -> AsyncLspResult<InitializeResult>
@@ -1992,7 +2312,7 @@ type LspServer() =
     /// documents.
     ///
     /// The document’s truth is now managed by the client and the server must not try to read the document’s
-    /// truth using the document’s uri. Open in this sense means it is managed by the client. It doesn’t
+    /// truth using the document’s uri. Open in this sense means it is managed by the client. It doesn't
     /// necessarily mean that its content is presented in an editor. An open notification must not be sent
     /// more than once without a corresponding close notification send before. This means open and close
     /// notification must be balanced and the max open count for a particular textDocument is one.
@@ -2083,7 +2403,7 @@ type LspServer() =
 
     /// The signature help request is sent from the client to the server to request signature information at
     /// a given cursor position.
-    abstract member TextDocumentSignatureHelp: TextDocumentPositionParams -> AsyncLspResult<SignatureHelp option>
+    abstract member TextDocumentSignatureHelp: SignatureHelpParams -> AsyncLspResult<SignatureHelp option>
     default __.TextDocumentSignatureHelp(_) = notImplemented
 
     /// The document link resolve request is sent from the client to the server to resolve the target of
@@ -2170,7 +2490,7 @@ type LspServer() =
     /// The document close notification is sent from the client to the server when the document got closed in the
     /// client. The document’s truth now exists where the document’s uri points to (e.g. if the document’s uri is
     /// a file uri the truth now exists on disk). As with the open notification the close notification is about
-    /// managing the document’s content. Receiving a close notification doesn’t mean that the document was open in
+    /// managing the document’s content. Receiving a close notification doesn't mean that the document was open in
     /// an editor before. A close notification requires a previous open notification to be sent.
     abstract member TextDocumentDidClose: DidCloseTextDocumentParams -> Async<unit>
     default __.TextDocumentDidClose(_) = ignoreNotification "TextDocumentDidClose"
@@ -2184,18 +2504,29 @@ type LspServer() =
     abstract member TextDocumentSelectionRange: SelectionRangeParams -> AsyncLspResult<SelectionRange list option>
     default __.TextDocumentSelectionRange(_) = notImplemented
 
+    abstract member TextDocumentSemanticTokensFull: SemanticTokensParams -> AsyncLspResult<SemanticTokens option>
+    default __.TextDocumentSemanticTokensFull(_) = notImplemented
+
+    abstract member TextDocumentSemanticTokensFullDelta: SemanticTokensDeltaParams -> AsyncLspResult<U2<SemanticTokens, SemanticTokensDelta> option>
+    default __.TextDocumentSemanticTokensFullDelta(_) = notImplemented
+
+    abstract member TextDocumentSemanticTokensRange: SemanticTokensRangeParams -> AsyncLspResult<SemanticTokens option>
+    default __.TextDocumentSemanticTokensRange(_) = notImplemented
+
 module Server =
-    open System
     open System.IO
     open Newtonsoft.Json
-    open Newtonsoft.Json.Linq
+    open FsLibLog
     open Newtonsoft.Json.Serialization
 
-    open Types
     open JsonRpc
+
+    let logger = LogProvider.getLoggerByName "LSP Server"
 
     let jsonSettings =
         let result = JsonSerializerSettings(NullValueHandling = NullValueHandling.Ignore)
+        result.Converters.Add(SingleCaseUnionConverter())
+        result.Converters.Add(U2BoolObjectConverter())
         result.Converters.Add(OptionConverter())
         result.Converters.Add(ErasedUnionConverter())
         result.ContractResolver <- CamelCasePropertyNamesContractResolver()
@@ -2243,14 +2574,14 @@ module Server =
                             return Result.Error (Error.Create(ErrorCodes.internalError, ex.ToString()))
                     }
                 | None ->
-                    async.Return (Result.Error (Error.Create(ErrorCodes.invalidRequest, "No params found")))
+                     async.Return (Result.Error (Error.Create(ErrorCodes.invalidRequest, "No params found")))
             with
             | :? JsonException as ex ->
                 async.Return (Result.Error (Error.Create(ErrorCodes.parseError, ex.ToString())))
 
         { Run = tokenRun }
 
-    /// Notifications don't generate a response or error, but to unify things we considere them as always successful.
+    /// Notifications don't generate a response or error, but to unify things we consider them as always successful.
     /// They will still not send any response because their ID is null.
     let private notificationSuccess (response: Async<unit>) = async {
         do! response
@@ -2290,13 +2621,16 @@ module Server =
             "textDocument/documentSymbol", requestHandling (fun s p -> s.TextDocumentDocumentSymbol(p))
             "textDocument/foldingRange", requestHandling (fun s p -> s.TextDocumentFoldingRange(p))
             "textDocument/selectionRange", requestHandling (fun s p -> s.TextDocumentSelectionRange(p))
+            "textDocument/semanticTokens/full", requestHandling(fun s p -> s.TextDocumentSemanticTokensFull(p))
+            "textDocument/semanticTokens/full/delta", requestHandling(fun s p -> s.TextDocumentSemanticTokensFullDelta(p))
+            "textDocument/semanticTokens/range", requestHandling(fun s p -> s.TextDocumentSemanticTokensRange(p))
             "workspace/didChangeWatchedFiles", requestHandling (fun s p -> s.WorkspaceDidChangeWatchedFiles(p) |> notificationSuccess)
             "workspace/didChangeWorkspaceFolders", requestHandling (fun s p -> s.WorkspaceDidChangeWorkspaceFolders (p) |> notificationSuccess)
             "workspace/didChangeConfiguration", requestHandling (fun s p -> s.WorkspaceDidChangeConfiguration (p) |> notificationSuccess)
             "workspace/symbol", requestHandling (fun s p -> s.WorkspaceSymbol (p))
             "workspace/executeCommand ", requestHandling (fun s p -> s.WorkspaceExecuteCommand (p))
-            "shutdown", requestHandling (fun s _ -> s.Shutdown() |> notificationSuccess)
-            "exit", requestHandling (fun s _ -> s.Exit() |> notificationSuccess)
+            "shutdown", requestHandling (fun s () -> s.Shutdown() |> notificationSuccess)
+            "exit", requestHandling (fun s () -> s.Exit() |> notificationSuccess)
         ]
         |> Map.ofList
 
@@ -2312,28 +2646,34 @@ module Server =
                 | ex ->
                     methodCallResult <- Result.Error (Error.Create(ErrorCodes.internalError, ex.ToString()))
             | None -> ()
+            match methodCallResult with
+            | Result.Ok ok ->
+                return Some (JsonRpc.Response.Success(request.Id, ok))
+            | Result.Error err ->
+                return Some (JsonRpc.Response.Failure(request.Id, err))
+        }
 
-            match request.Id with
-            | Some _ ->
-                match methodCallResult with
-                | Result.Ok ok ->
-                    return Some (JsonRpc.Response.Success(request.Id, ok))
-                | Result.Error err ->
-                    return Some (JsonRpc.Response.Failure(request.Id, err))
-            | None ->
-                match methodCallResult with
-                | Result.Ok (Some ok) ->
-                    ()
-                | Result.Error err ->
-                    ()
-                | _ ->
-                    ()
-                return None
+    let handleNotification<'server when 'server :> LspServer>  (requestHandlings : Map<string,RequestHandling<'server>>) (notification: JsonRpc.Notification) (lspServer: 'server): Async<Result<unit, _>> =
+        async {
+            let mutable methodCallResult = Result.Error (Error.MethodNotFound)
+            match requestHandlings |> Map.tryFind notification.Method with
+            | Some handling ->
+                try
+                    let! _ = handling.Run lspServer notification.Params
+                    methodCallResult <- Result.Ok ()
+                with
+                | ex ->
+                    methodCallResult <- Result.Error (Error.Create(ErrorCodes.internalError, ex.ToString()))
+            | None -> ()
+            return methodCallResult
         }
 
     type ClientNotificationSender = string -> obj -> AsyncLspResult<unit>
 
-    type private RequestHandlingResult =
+    type ClientRequestSender =
+        abstract member Send<'a> : string -> obj -> AsyncLspResult<'a>
+
+    type private MessageHandlingResult =
         | Normal
         | WasExit
         | WasShutdown
@@ -2343,7 +2683,17 @@ module Server =
         | ErrorExitWithoutShutdown = 1
         | ErrorStreamClosed = 2
 
-    let start<'a, 'b when 'a :> LspClient and 'b :> LspServer> (requestHandlings : Map<string,RequestHandling<'b>>) (input: Stream) (output: Stream) (clientCreator: ClientNotificationSender -> 'a) (serverCreator: 'a -> 'b) =
+    type ResponseMailboxMsg =
+        | Request of int * AsyncReplyChannel<JToken option>
+        | Response of int option * Response
+
+    let getNextRequestId =
+      let mutable counter = 0
+      fun () ->
+        counter <- counter + 1
+        counter
+
+    let start<'a, 'b when 'a :> LspClient and 'b :> LspServer> (requestHandlings : Map<string,RequestHandling<'b>>) (input: Stream) (output: Stream) (clientCreator: (ClientNotificationSender * ClientRequestSender) -> 'a) (serverCreator: 'a -> 'b) =
         let sender = MailboxProcessor<string>.Start(fun inbox ->
             let rec loop () = async {
                 let! str = inbox.Receive()
@@ -2353,36 +2703,111 @@ module Server =
             }
             loop ())
 
-        /// When the server wants to send a request/notification to the client
-        let sendServerRequest (rpcMethod: string) (requestObj: obj): AsyncLspResult<unit> =
-            let serializedResponse = JToken.FromObject(requestObj, jsonSerializer)
-            let req = JsonRpc.Request.Create(rpcMethod, serializedResponse)
-            let reqString = JsonConvert.SerializeObject(req, jsonSettings)
-            sender.Post(reqString)
-            // TODO: Really wait for the client answer if not a notification (Necessary to implement requests)
+        let responseAgent = MailboxProcessor<ResponseMailboxMsg>.Start(fun agent ->
+          let rec loop state =
+              async{
+                  let! msg = agent.Receive()
+                  match msg with
+                  | Request (rid, reply) ->
+                      return! loop (state |> Map.add rid reply)
+                  | Response (Some rid, value) ->
+                      let result = state |> Map.tryFind rid
+                      match result with
+                      |Some(reply) ->
+                          reply.Reply(value.Result)
+                      |None ->
+                          logger.warn (Log.setMessage "ResponseAgent - Unexpected response (id {rid}) {response}" >> Log.addContextDestructured "response" value >> Log.addContext "rid" rid)
+                      return! loop (state |> Map.remove rid)
+                  | Response (None, response) ->
+                      logger.error (Log.setMessage "ResponseAgent - Client reports we sent a corrupt request id, error: {error}" >> Log.addContextDestructured "error" (response.Error))
+                      return! loop state
+              }
+          loop Map.empty)
+
+
+        /// When the server wants to send a notification to the client
+        let sendServerNotification (rpcMethod: string) (notificationObj: obj): AsyncLspResult<unit> =
+            let serializedNotification = JToken.FromObject(notificationObj, jsonSerializer)
+            let notification = JsonRpc.Notification.Create(rpcMethod, Some serializedNotification)
+            let notString = JsonConvert.SerializeObject(notification, jsonSettings)
+            sender.Post(notString)
             async.Return (LspResult.Ok ())
 
-        let lspClient = clientCreator sendServerRequest
-        let lspServer = serverCreator lspClient
-
-        let handleClientRequest (requestString: string): RequestHandlingResult =
-            let request = JsonConvert.DeserializeObject<JsonRpc.Request>(requestString, jsonSettings)
-
+        /// When the server wants to send a request to the client
+        let sendServerRequest (rpcMethod: string) (requestObj: obj): AsyncLspResult<'response> =
             async {
-                let! result = handleRequest requestHandlings request lspServer
-                match result with
-                | Some response ->
-                    let responseString = JsonConvert.SerializeObject(response, jsonSettings)
-                    sender.Post(responseString)
-                | None -> ()
+              let serializedRequest =
+                if isNull requestObj then
+                  None
+                else
+                  Some (JToken.FromObject(requestObj, jsonSerializer))
+              let req = JsonRpc.Request.Create(getNextRequestId(), rpcMethod, serializedRequest)
+              let reqString = JsonConvert.SerializeObject(req, jsonSettings)
+              sender.Post(reqString)
+              let! response = responseAgent.PostAndAsyncReply((fun replyChannel -> Request(req.Id, replyChannel)))
+              try
+                match response with
+                | Some responseToken ->
+                    let typedResponse = responseToken.ToObject<'response>(jsonSerializer)
+                    return (LspResult.Ok typedResponse)
+                | None ->
+                    if typeof<'response> = typeof<unit> then
+                        return (LspResult.Ok (unbox ()))
+                    else
+                      logger.error (Log.setMessage "ResponseHandling - Invalid response type for response {response}, expected {expectedType}, got unit" >> Log.addContextDestructured "response" response >> Log.addContext "expectedType" (typeof<'response>).Name)
+                      return (LspResult.invalidParams (sprintf "Response params expected for %i but missing" req.Id))
+              with
+              | :? JsonException as ex ->
+                logger.error (Log.setMessage "ResponseHandling - Parsing failed for response {response}" >> Log.addContextDestructured "response" response >> Log.addExn ex)
+                return (LspResult.invalidParams (sprintf "Response params invalid for %i" req.Id))
             }
-            |> Async.StartAsTask
-            |> ignore
 
-            match request.Method with
-            | "shutdown" -> RequestHandlingResult.WasShutdown
-            | "exit" -> RequestHandlingResult.WasExit
-            | _ -> RequestHandlingResult.Normal
+        let lspClient = clientCreator (sendServerNotification, { new ClientRequestSender with member __.Send x t  = sendServerRequest x t})
+        use lspServer = serverCreator lspClient
+
+        let handleClientMessage (messageString: string): MessageHandlingResult =
+            let messageTypeTest = JsonConvert.DeserializeObject<JsonRpc.MessageTypeTest>(messageString, jsonSettings)
+            match getMessageType messageTypeTest with
+            | MessageType.Response ->
+                let response = JsonConvert.DeserializeObject<JsonRpc.Response>(messageString, jsonSettings)
+                responseAgent.Post(Response(response.Id, response))
+                MessageHandlingResult.Normal
+            | MessageType.Notification ->
+                let notification = JsonConvert.DeserializeObject<JsonRpc.Notification>(messageString, jsonSettings)
+                async {
+                  let! result = handleNotification requestHandlings notification lspServer
+                  match result with
+                  | Result.Ok _ -> ()
+                  | Result.Error error ->
+                    logger.error (Log.setMessage "HandleClientMessage - Error {error} when handling notification {notification}" >> Log.addContextDestructured "error" error >> Log.addContextDestructured "notification" notification)
+                    //TODO: Handle error on receiving notification, send message to user?
+                    ()
+                }
+                |> Async.StartAsTask
+                |> ignore
+
+                match notification.Method with
+                | "exit" -> MessageHandlingResult.WasExit
+                | _ -> MessageHandlingResult.Normal
+            | MessageType.Request ->
+                let request = JsonConvert.DeserializeObject<JsonRpc.Request>(messageString, jsonSettings)
+                async {
+                  let! result = handleRequest requestHandlings request lspServer
+                  match result with
+                  | Some response ->
+                      let responseString = JsonConvert.SerializeObject(response, jsonSettings)
+                      sender.Post(responseString)
+                  | None -> ()
+                }
+                |> Async.StartAsTask
+                |> ignore
+
+                match request.Method with
+                | "shutdown" -> MessageHandlingResult.WasShutdown
+                | _ -> MessageHandlingResult.Normal
+            | MessageType.Error ->
+                logger.error (Log.setMessage "HandleClientMessage - Message had invalid jsonrpc version: {messageTypeTest}" >> Log.addContextDestructured "messageTypeTest" messageTypeTest)
+                MessageHandlingResult.Normal
 
         let mutable shutdownReceived = false
         let mutable quitReceived = false
@@ -2391,12 +2816,12 @@ module Server =
             try
                 let _, requestString = LowLevel.read input
 
-                match handleClientRequest requestString with
-                | RequestHandlingResult.WasShutdown -> shutdownReceived <- true
-                | RequestHandlingResult.WasExit ->
+                match handleClientMessage requestString with
+                | MessageHandlingResult.WasShutdown -> shutdownReceived <- true
+                | MessageHandlingResult.WasExit ->
                     quitReceived <- true
                     quit <- true
-                | RequestHandlingResult.Normal -> ()
+                | MessageHandlingResult.Normal -> ()
             with
             | :? EndOfStreamException ->
                 quit <- true
@@ -2411,12 +2836,13 @@ module Server =
 module Client =
     open System
     open System.IO
+    open FsLibLog
     open Newtonsoft.Json
-    open Newtonsoft.Json.Linq
     open Newtonsoft.Json.Serialization
 
-    open Types
     open JsonRpc
+
+    let logger = LogProvider.getLoggerByName "LSP Client"
 
     let internal jsonSettings =
             let result = JsonSerializerSettings(NullValueHandling = NullValueHandling.Ignore)
@@ -2481,22 +2907,63 @@ module Client =
                         methodCallResult <- None
                 | None -> ()
 
-                match request.Id with
-                | Some _ ->
-                    match methodCallResult with
-                    | Some ok ->
-                        return Some (JsonRpc.Response.Success(request.Id, Some ok))
-                    | None ->
-                        return None
+                match methodCallResult with
+                | Some ok ->
+                    return Some (JsonRpc.Response.Success(request.Id, Some ok))
                 | None ->
-                    match methodCallResult with
-                    | Some ok->
-                        return Some (JsonRpc.Response.Success(None, Some ok))
-                    | None ->
-                        return None
+                    return None
+            }
+
+        let handleNotification (notification: JsonRpc.Notification) =
+            async {
+                match notificationHandlings |> Map.tryFind notification.Method with
+                | Some handling ->
+                    try
+                        match notification.Params with
+                        | None -> return Result.Error (Error.InvalidParams)
+                        | Some prms ->
+                            let! result = handling.Run prms
+                            return Result.Ok ()
+                    with
+                    | ex ->
+                        return Result.Error (Error.Create(ErrorCodes.internalError, ex.ToString()))
+                | None ->
+                  return Result.Error (Error.MethodNotFound)
             }
 
         let messageHanlder str =
+            let messageTypeTest = JsonConvert.DeserializeObject<JsonRpc.MessageTypeTest>(str, jsonSettings)
+            match getMessageType messageTypeTest with
+            | MessageType.Notification ->
+                let notification = JsonConvert.DeserializeObject<JsonRpc.Notification>(str, jsonSettings)
+                async {
+                  let! result = handleNotification notification
+                  match result with
+                  | Result.Ok _ -> ()
+                  | Result.Error error ->
+                    logger.error (Log.setMessage "HandleServerMessage - Error {error} when handling notification {notification}" >> Log.addContextDestructured "error" error >> Log.addContextDestructured "notification" notification)
+                    //TODO: Handle error on receiving notification, send message to user?
+                    ()
+                }
+                |> Async.StartAsTask
+                |> ignore
+            | MessageType.Request ->
+                let request = JsonConvert.DeserializeObject<JsonRpc.Request>(str, jsonSettings)
+                async {
+                  let! result = handleRequest request
+                  match result with
+                  | Some response ->
+                      let responseString = JsonConvert.SerializeObject(response, jsonSettings)
+                      sender.Post(responseString)
+                  | None -> ()
+                }
+                |> Async.StartAsTask
+                |> ignore
+            | MessageType.Response
+            | MessageType.Error ->
+                logger.error (Log.setMessage "HandleServerMessage - Message had invalid jsonrpc version: {messageTypeTest}" >> Log.addContextDestructured "messageTypeTest" messageTypeTest)
+                ()
+
             let request = JsonConvert.DeserializeObject<JsonRpc.Request>(str, jsonSettings)
             async {
                 let! result = handleRequest request
@@ -2509,11 +2976,11 @@ module Client =
             |> Async.StartAsTask
             |> ignore
 
-        member __.SendRequest (rpcMethod: string) (requestObj: obj) =
+        member __.SendNotification (rpcMethod: string) (requestObj: obj) =
             let serializedResponse = JToken.FromObject(requestObj, jsonSerializer)
-            let req = JsonRpc.Request.Create(rpcMethod, serializedResponse)
-            let reqString = JsonConvert.SerializeObject(req, jsonSettings)
-            sender.Post(reqString)
+            let notification = JsonRpc.Notification.Create(rpcMethod, Some serializedResponse)
+            let notString = JsonConvert.SerializeObject(notification, jsonSettings)
+            sender.Post(notString)
 
         member __.Start() =
             async {
