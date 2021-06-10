@@ -16,7 +16,7 @@ type ToolDir =
     | Local of string
 
 // ========================================================================================================
-// === F# / Console Application fake build ======================================================== 1.3.1 =
+// === F# / Console Application fake build ======================================================== 1.5.0 =
 // --------------------------------------------------------------------------------------------------------
 // Options:
 //  - no-clean   - disables clean of dirs in the first step (required on CI)
@@ -123,6 +123,19 @@ let stringToOption = function
     | null | "" -> None
     | string -> Some string
 
+[<RequireQualifiedAccess>]
+module ProjectSources =
+    let release =
+        !! "./*.fsproj"
+
+    let tests =
+        !! "tests/*.fsproj"
+
+    let all =
+        !! "./*.fsproj"
+        ++ "src/**/*.fsproj"
+        ++ "tests/*.fsproj"
+
 // --------------------------------------------------------------------------------------------------------
 // 3. Targets for FAKE
 // --------------------------------------------------------------------------------------------------------
@@ -156,7 +169,7 @@ Target.create "AssemblyInfo" (fun _ ->
             AssemblyInfo.Metadata("createdAt", now.ToString("yyyy-MM-dd HH:mm:ss"))
         ]
 
-    let getProjectDetails projectPath =
+    let getProjectDetails (projectPath: string) =
         let projectName = IO.Path.GetFileNameWithoutExtension(projectPath)
         (
             projectPath,
@@ -165,9 +178,7 @@ Target.create "AssemblyInfo" (fun _ ->
             (getAssemblyInfoAttributes projectName)
         )
 
-    !! "**/*.fsproj"
-    -- "example/**/*.*proj"
-    -- "paket-files/**/*.*proj"
+    ProjectSources.all
     |> Seq.map getProjectDetails
     |> Seq.iter (fun (_, _, folderName, attributes) ->
         AssemblyInfoFile.createFSharp (folderName </> "AssemblyInfo.fs") attributes
@@ -175,15 +186,12 @@ Target.create "AssemblyInfo" (fun _ ->
 )
 
 Target.create "Build" (fun _ ->
-    !! "./*.fsproj"
-    -- "example/**/*.*proj"
-    -- "paket-files/**/*.*proj"
+    ProjectSources.release
     |> Seq.iter (DotNet.build id)
 )
 
 Target.create "Lint" <| skipOn "no-lint" (fun _ ->
-    let version = " --version 0.16.5"    // todo - remove when .net5.0 is used
-    DotnetCore.installOrUpdateTool toolsDir ("dotnet-fsharplint" + version)
+    DotnetCore.installOrUpdateTool toolsDir "dotnet-fsharplint"
 
     let checkResult (messages: string list) =
         let rec check: string list -> unit = function
@@ -198,9 +206,7 @@ Target.create "Lint" <| skipOn "no-lint" (fun _ ->
         |> List.rev
         |> check
 
-    !! "**/*.*proj"
-    -- "example/**/*.*proj"
-    -- "paket-files/**/*.*proj"
+    ProjectSources.all
     |> Seq.map (fun fsproj ->
         match toolsDir with
         | Global ->
@@ -217,7 +223,7 @@ Target.create "Lint" <| skipOn "no-lint" (fun _ ->
 )
 
 Target.create "Tests" (fun _ ->
-    if !! "tests/*.fsproj" |> Seq.isEmpty
+    if ProjectSources.tests |> Seq.isEmpty
     then Trace.tracefn "There are no tests yet."
     else DotnetCore.runOrFail "run" "tests"
 )
@@ -242,10 +248,7 @@ let zipRelease releaseDir =
 Target.create "Release" (fun _ ->
     let releaseDir = Path.getFullName "./dist"
 
-    !! "./*.fsproj"
-    -- "example/**/*.*proj"
-    -- "paket-files/**/*.*proj"
-    -- "tests/**/*.*proj"
+    ProjectSources.release
     |> Seq.collect (fun project -> runtimeIds |> List.collect (fun runtimeId -> [project, runtimeId]))
     |> Seq.iter (fun (project, runtimeId) ->
         sprintf "publish -c Release /p:PublishSingleFile=true -o %s/%s --self-contained -r %s %s" releaseDir runtimeId runtimeId project
